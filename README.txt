@@ -8,7 +8,20 @@ REDFAX_SERVER/
 ├── auth.py         # Авторизация, токены, хеширование, зависимости
 ├── crypto.py       # Шифрование/дешифрование AES
 ├── docker-compose.yml # Запуск MongoDB
+├─ site # Фронтэнд
 
-
+docker compose -f 'docker-compose.yml' up -d --build 'mongodb' 
 
 uvicorn main:app --reload
+
+ФРОНТ
+HTML, Tallwind, TS, React, Vite
+
+БЭК 
+Python, Mongo , Websocket , Rest API, Монолит, Fast Api.
+
+Ситема контроля версий
+Git, GitHub.
+
+Контейнеризация:
+Docker,  Docker-compose.
