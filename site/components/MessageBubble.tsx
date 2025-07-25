@@ -1,6 +1,6 @@
-
 import React from 'react';
 import type { Message } from '../types';
+import VoiceMessagePlayer from './VoiceMessagePlayer';
 
 interface MessageBubbleProps {
   message: Message;
@@ -18,7 +18,12 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message }) => {
   return (
     <div className={`flex ${alignment} mb-4`}>
       <div className={`max-w-md lg:max-w-lg px-4 py-2 rounded-lg ${bubbleColor}`}>
-        <p className="text-dark-primary dark:text-light-primary whitespace-pre-wrap break-words">{message.content}</p>
+        {message.content && (
+            <p className="text-dark-primary dark:text-light-primary whitespace-pre-wrap break-words">{message.content}</p>
+        )}
+        {message.audioUrl && (
+            <VoiceMessagePlayer audioUrl={message.audioUrl} />
+        )}
         <p className="text-xs text-gray-500 dark:text-gray-400 text-right mt-1">{formatTimestamp(message.timestamp)}</p>
       </div>
     </div>

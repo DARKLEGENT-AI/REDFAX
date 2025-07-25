@@ -9,4 +9,6 @@ REDFAX_SERVER/
 ├── crypto.py       # Шифрование/дешифрование AES
 ├── docker-compose.yml # Запуск MongoDB
 
+
+
 uvicorn main:app --reload

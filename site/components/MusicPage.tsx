@@ -5,7 +5,7 @@ import type { UserFile } from '../types';
 
 // --- Icon Components ---
 const MusicNoteIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-full w-full" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2z" /></svg>;
-const PlayIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10" fill="currentColor" viewBox="0 0 20 20"><path d="M6.3 5.14A1.5 1.5 0 004 6.5v7a1.5 1.5 0 002.3 1.36l6-3.5a1.5 1.5 0 000-2.72l-6-3.5z" /></svg>;
+const PlayIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10" fill="currentColor" viewBox="0 0 20 20"><path d="M6.5 5.5l8 4.5-8 4.5v-9z" /></svg>;
 const PauseIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10" fill="currentColor" viewBox="0 0 20 20"><path d="M5.75 4.5a.75.75 0 00-.75.75v9.5c0 .414.336.75.75.75h1.5a.75.75 0 00.75-.75V5.25a.75.75 0 00-.75-.75h-1.5zm6.5 0a.75.75 0 00-.75.75v9.5c0 .414.336.75.75.75h1.5a.75.75 0 00.75-.75V5.25a.75.75 0 00-.75-.75h-1.5z" /></svg>;
 const NextIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M7.21 14.77a.75.75 0 010-1.06L10.18 10 7.21 7.03a.75.75 0 011.06-1.06l3.5 3.5a.75.75 0 010 1.06l-3.5 3.5a.75.75 0 01-1.06 0z" clipRule="evenodd" /></svg>;
 const PrevIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M12.79 5.23a.75.75 0 010 1.06L9.82 10l2.97 2.97a.75.75 0 11-1.06 1.06l-3.5-3.5a.75.75 0 010-1.06l3.5-3.5a.75.75 0 011.06 0z" clipRule="evenodd" /></svg>;
@@ -30,6 +30,7 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({ activeFile, playlist, token, 
 
     const audioRef = useRef<HTMLAudioElement>(null);
     const activeTrackUrlRef = useRef<string | null>(null);
+    const isProgrammaticChange = useRef(false);
 
     useEffect(() => {
         const loadTrack = async () => {
@@ -62,10 +63,13 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({ activeFile, playlist, token, 
     useEffect(() => {
         if (currentTrackUrl && audioRef.current) {
             audioRef.current.src = currentTrackUrl;
-            audioRef.current.play().then(() => setIsPlaying(true)).catch(e => {
-                console.error("Playback was interrupted:", e);
-                setIsPlaying(false);
-            });
+            if (isProgrammaticChange.current) {
+                audioRef.current.play().then(() => setIsPlaying(true)).catch(e => {
+                    console.error("Playback was interrupted:", e);
+                    setIsPlaying(false);
+                });
+                isProgrammaticChange.current = false;
+            }
         }
     }, [currentTrackUrl]);
 
@@ -96,6 +100,7 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({ activeFile, playlist, token, 
         const nextIndex = (currentIndex + 1) % playlist.length;
         const nextTrack = playlist[nextIndex];
         if (nextTrack) {
+            isProgrammaticChange.current = true;
             onTrackChange(nextTrack.id);
         }
     }, [activeFile.id, playlist, onTrackChange]);
@@ -107,6 +112,7 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({ activeFile, playlist, token, 
         const prevIndex = (currentIndex - 1 + playlist.length) % playlist.length;
         const prevTrack = playlist[prevIndex];
         if (prevTrack) {
+            isProgrammaticChange.current = true;
             onTrackChange(prevTrack.id);
         }
     }, [activeFile.id, playlist, onTrackChange]);

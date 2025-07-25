@@ -6,6 +6,7 @@ import FileList from './FileList';
 import FileEditor from './FileEditor';
 import AddFileModal from './AddFileModal';
 import MusicPlayer from './MusicPage'; // Renamed from MusicPage to MusicPlayer internally
+import VideoPlayer from './VideoPlayer';
 import ConfirmModal from './ConfirmModal';
 
 interface FilesPageProps {
@@ -104,8 +105,8 @@ const FilesPage: React.FC<FilesPageProps> = ({ user, token }) => {
 
   useEffect(() => {
     const file = files.find(f => f.id === activeFileId);
-    // Do not load content for audio files here, the player will handle it.
-    if (!file || file.contentType.startsWith('audio/')) {
+    // Do not load content for audio or video files here, the players will handle it.
+    if (!file || file.contentType.startsWith('audio/') || file.contentType.startsWith('video/')) {
       return;
     }
 
@@ -258,12 +259,17 @@ const FilesPage: React.FC<FilesPageProps> = ({ user, token }) => {
       />
 
       <div className="flex-1 min-w-0">
-        {activeFile && activeFile.contentType.startsWith('audio/') ? (
+        {activeFile?.contentType.startsWith('audio/') ? (
           <MusicPlayer
             activeFile={activeFile}
             playlist={musicFiles}
             token={token}
             onTrackChange={setActiveFileId}
+          />
+        ) : activeFile?.contentType.startsWith('video/') ? (
+          <VideoPlayer
+            activeFile={activeFile}
+            token={token}
           />
         ) : (
           <FileEditor

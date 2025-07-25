@@ -12,6 +12,8 @@ interface ChatPageProps {
   onLogout: () => void;
 }
 
+const API_URL = 'http://127.0.0.1:8000';
+
 const ChatPage: React.FC<ChatPageProps> = ({ user, token, onLogout }) => {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
@@ -122,10 +124,11 @@ const ChatPage: React.FC<ChatPageProps> = ({ user, token, onLogout }) => {
 
         const processedMessages: Message[] = chatMessages.map((msg): Message => {
             return {
-              id: `${msg.sender}-${msg.timestamp}`, // Create a unique ID
+              id: `${msg.sender}-${msg.timestamp}`,
               sender: msg.sender,
               receiver: msg.receiver,
-              content: msg.content,
+              content: msg.content ?? null,
+              audioUrl: msg.audio_url ? `${API_URL}${msg.audio_url}` : undefined,
               timestamp: new Date(msg.timestamp).getTime(),
               isSentByMe: msg.sender === user.username,
             };
@@ -200,6 +203,46 @@ const ChatPage: React.FC<ChatPageProps> = ({ user, token, onLogout }) => {
               [activeChat]: chatMessages.filter(msg => msg.id !== optimisticMessage.id)
           }
       });
+    }
+  };
+  
+  const handleSendVoiceMessage = async (audioFile: File) => {
+    if (!activeChat || !token) return;
+
+    setError(null);
+    const audioUrl = URL.createObjectURL(audioFile);
+
+    const optimisticMessage: Message = {
+      id: `${user.username}-${Date.now()}`,
+      sender: user.username,
+      receiver: activeChat,
+      content: null,
+      audioUrl: audioUrl,
+      timestamp: Date.now(),
+      isSentByMe: true,
+    };
+
+    setMessages(prev => ({
+      ...prev,
+      [activeChat]: [...(prev[activeChat] || []), optimisticMessage],
+    }));
+
+    try {
+        await api.sendVoiceMessage(token, activeChat, audioFile);
+        // Polling will replace the blob url with the server url.
+    } catch (err: any) {
+        console.error("Не удалось отправить голосовое сообщение:", err);
+        setError(err.message || "Не удалось отправить голосовое сообщение. Пожалуйста, попробуйте еще раз.");
+        
+        // Revert optimistic update on failure
+        setMessages(prev => {
+            const chatMessages = prev[activeChat] || [];
+            return {
+                ...prev,
+                [activeChat]: chatMessages.filter(msg => msg.id !== optimisticMessage.id)
+            }
+        });
+        URL.revokeObjectURL(audioUrl);
     }
   };
   
@@ -316,6 +359,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ user, token, onLogout }) => {
             activeChatInfo={activeChatInfo}
             messages={messages[activeChat || ''] || []}
             onSendMessage={handleSendMessage}
+            onSendVoiceMessage={handleSendVoiceMessage}
             isLoading={isMessagesLoading}
             onDeleteChat={handleDeleteChat}
             error={error}

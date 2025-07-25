@@ -2,7 +2,8 @@ export interface Message {
   id: string;
   sender: string;
   receiver: string;
-  content: string; // This is now plain text from the API
+  content: string | null; // Can be null for voice messages
+  audioUrl?: string; // URL for the audio file
   timestamp: number;
   isSentByMe: boolean;
 }
@@ -10,7 +11,8 @@ export interface Message {
 export interface ApiMessage {
   sender: string;
   receiver: string;
-  content: string;
+  content: string | null; // Can be null for voice messages
+  audio_url?: string | null; // URL path for the audio file
   timestamp: string; // ISO 8601 format from server
 }
 

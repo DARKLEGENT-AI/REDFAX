@@ -2,20 +2,16 @@ import type { Contact, ApiMessage, ApiFile, ApiProfile, CalendarEvent, ApiGroup,
 
 const API_URL = 'http://127.0.0.1:8000';
 
-// This function now throws, so its return type is `never`.
 const handleNetworkError = (error: unknown): never => {
     if (error instanceof TypeError && error.message === 'Failed to fetch') {
         throw new Error('Не удалось подключиться к серверу. Убедитесь, что сервер запущен и проверьте настройки CORS.');
     }
-    // Re-throw if it's already a recognizable error.
     if (error instanceof Error) {
         throw error;
     }
-    // Otherwise, wrap it in a generic error.
     throw new Error('Произошла неизвестная сетевая ошибка.');
 };
 
-// This function also throws, so its return type is `never`.
 const handleResponseError = async (response: Response, defaultError: string): Promise<never> => {
     if (response.status === 401 || response.status === 403) {
         throw new Error('AUTH_FAILURE');
@@ -24,13 +20,10 @@ const handleResponseError = async (response: Response, defaultError: string): Pr
     let errorMessage = defaultError;
     try {
         const errorData = await response.json();
-        // API spec says error is { "detail": "..." }
-        // We ensure `detail` is a string to prevent "[object Object]" errors.
         if (errorData && typeof errorData.detail === 'string' && errorData.detail) {
             errorMessage = errorData.detail;
         }
     } catch (e) {
-        // Response body is not valid JSON or empty. Use the default message.
     }
     throw new Error(errorMessage);
 };
@@ -139,6 +132,28 @@ export const api = {
           handleNetworkError(error);
       }
   },
+  sendVoiceMessage: async (token: string, receiver: string, file: File): Promise<{ message: string; audio_file_id: string; }> => {
+    try {
+      const formData = new FormData();
+      formData.append('receiver', receiver);
+      formData.append('file', file, 'voice.mp3');
+
+      const response = await fetch(`${API_URL}/send/voice`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        await handleResponseError(response, 'Не удалось отправить голосовое сообщение.');
+      }
+      return response.json();
+    } catch (error) {
+      handleNetworkError(error);
+    }
+  },
   getGroups: async (token: string): Promise<Group[]> => {
     try {
         const response = await fetch(`${API_URL}/groups/list`, {
@@ -197,7 +212,6 @@ export const api = {
   },
   deleteGroup: async (token: string, groupId: string): Promise<void> => {
      try {
-      // FIX: Changed method from DELETE to POST to handle "Method Not Allowed" error from the server.
       const response = await fetch(`${API_URL}/groups/${groupId}`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
@@ -256,7 +270,7 @@ export const api = {
       formData.append('file', file);
 
       const response = await fetch(`${API_URL}/upload/text/${fileId}?user_id=${encodeURIComponent(userId)}`, {
-        method: 'POST',
+        method: 'PUT',
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -287,8 +301,7 @@ export const api = {
   },
   deleteFile: async (token: string, fileId: string): Promise<{ message: string }> => {
     try {
-      // FIX: Changed method from DELETE to POST to handle "Method Not Allowed" error from the server.
-      const response = await fetch(`${API_URL}/files/${fileId}`, {
+      const response = await fetch(`${API_URL}/delete/${fileId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -333,9 +346,8 @@ export const api = {
   },
   updateProfile: async (token: string, profileData: Partial<ApiProfile>): Promise<{ message: string }> => {
     try {
-      // FIX: Changed method from PUT to POST to handle "Method Not Allowed" error from the server.
       const response = await fetch(`${API_URL}/profile`, {
-        method: 'POST',
+        method: 'PUT',
         headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`
@@ -361,12 +373,11 @@ export const api = {
         await handleResponseError(response, 'Не удалось загрузить задачи.');
       }
       const tasks = await response.json();
-      // The API response might not have 'description', so we map it.
       return tasks.map((task: any) => ({
         id: task.id,
         title: task.title,
         date: task.date,
-        description: task.description || '', // Ensure description is a string
+        description: task.description || '',
       }));
     } catch (error) {
       handleNetworkError(error);
@@ -393,7 +404,6 @@ export const api = {
   },
   deleteTask: async (token: string, taskId: string): Promise<void> => {
     try {
-      // FIX: Changed method from DELETE to POST to handle "Method Not Allowed" error from the server.
       const response = await fetch(`${API_URL}/tasks/${taskId}`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
@@ -401,7 +411,6 @@ export const api = {
       if (!response.ok) {
         await handleResponseError(response, 'Не удалось удалить задачу.');
       }
-      // No content is expected on successful deletion
     } catch (error) {
       handleNetworkError(error);
     }
