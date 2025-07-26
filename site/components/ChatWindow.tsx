@@ -6,10 +6,9 @@ import MessageBubble from './MessageBubble';
 interface ChatWindowProps {
   activeChatInfo: { id: string; name: string; isGroup: boolean; isGroupAdmin: boolean; } | null;
   messages: Message[];
-  onSendMessage: (content: string) => void;
-  onSendVoiceMessage: (audioFile: File) => void;
+  onSendMessage: (payload: { content?: string; audioFile?: File }) => void;
   isLoading: boolean;
-  onDeleteChat: (username: string) => void;
+  onDeleteChat: () => void;
   error: string | null;
 }
 
@@ -62,7 +61,7 @@ const EndCallIcon = () => (
 );
 
 
-const ChatWindow: React.FC<ChatWindowProps> = ({ activeChatInfo, messages, onSendMessage, onSendVoiceMessage, isLoading, onDeleteChat, error }) => {
+const ChatWindow: React.FC<ChatWindowProps> = ({ activeChatInfo, messages, onSendMessage, isLoading, onDeleteChat, error }) => {
   const [inputValue, setInputValue] = useState('');
   const [isCalling, setIsCalling] = useState(false);
   
@@ -112,15 +111,13 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ activeChatInfo, messages, onSen
 
   const handleSendText = () => {
     if (inputValue.trim()) {
-      onSendMessage(inputValue);
+      onSendMessage({ content: inputValue });
       setInputValue('');
     }
   };
 
   const handleDeleteClick = () => {
-      if (activeChatInfo) {
-          onDeleteChat(activeChatInfo.id);
-      }
+    onDeleteChat();
   }
 
   const formatRecordingTime = (time: number) => {
@@ -146,7 +143,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ activeChatInfo, messages, onSen
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
         // The API expects an mp3 file, so we name it accordingly. The server should handle conversion.
         const audioFile = new File([audioBlob], `voice_message_${Date.now()}.mp3`, { type: 'audio/mpeg' });
-        onSendVoiceMessage(audioFile);
+        onSendMessage({ audioFile });
         
         stream.getTracks().forEach(track => track.stop());
       };
@@ -266,7 +263,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ activeChatInfo, messages, onSen
             </div>
         ) : (
             messages.map(msg => (
-                <MessageBubble key={msg.id} message={msg} />
+                <MessageBubble key={msg.id} message={msg} isGroup={activeChatInfo.isGroup} />
             ))
         )}
         <div ref={messagesEndRef} />

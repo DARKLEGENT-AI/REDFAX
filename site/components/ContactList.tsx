@@ -1,12 +1,18 @@
-
-import React from 'react';
+import React, { useState } from 'react';
 import type { Contact, Group } from '../types';
+
+interface ActiveChatInfo {
+  id: string;
+  name: string;
+  isGroup: boolean;
+  isGroupAdmin: boolean;
+}
 
 interface ContactListProps {
   contacts: Contact[];
   groups: Group[];
-  activeChat: string | null;
-  onSelectChat: (username: string) => void;
+  activeChat: ActiveChatInfo | null;
+  onSelectChat: (chatInfo: ActiveChatInfo) => void;
   onAddContact: () => void;
   onOpenGroupModal: () => void;
   isLoading: boolean;
@@ -25,8 +31,32 @@ const GroupIcon = () => (
     </svg>
 );
 
+const CopyIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 4h8a2 2 0 012 2v8a2 2 0 01-2 2H8a2 2 0 01-2-2v-8a2 2 0 012-2z" />
+    </svg>
+);
+
 
 const ContactList: React.FC<ContactListProps> = ({ contacts, groups, activeChat, onSelectChat, onAddContact, onOpenGroupModal, isLoading, error }) => {
+  const [copiedKeyId, setCopiedKeyId] = useState<string | null>(null);
+
+  const selectAndLog = (chatInfo: ActiveChatInfo) => {
+    console.log('%c[DEBUG] ContactList: Selecting chat.', 'color: #339933; font-weight: bold;', chatInfo);
+    onSelectChat(chatInfo);
+  };
+
+  const handleCopyKey = (e: React.MouseEvent, key: string, groupId: string) => {
+      e.stopPropagation(); // Prevent chat selection
+      navigator.clipboard.writeText(key).then(() => {
+        setCopiedKeyId(groupId);
+        setTimeout(() => setCopiedKeyId(null), 2000); // Reset after 2 seconds
+      }).catch(err => {
+        console.error('Failed to copy key: ', err);
+        alert('Не удалось скопировать ключ.');
+      });
+    };
+
   return (
     <div className="bg-light-secondary dark:bg-dark-secondary flex flex-col h-full">
       <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
@@ -44,8 +74,8 @@ const ContactList: React.FC<ContactListProps> = ({ contacts, groups, activeChat,
             {contacts.map(contact => (
             <div
                 key={contact.username}
-                onClick={() => onSelectChat(contact.username)}
-                className={`p-3 rounded-md mb-1 cursor-pointer border-l-4 transition-colors ${activeChat === contact.username ? 'bg-gray-200 dark:bg-gray-700 border-soviet-red' : 'border-transparent hover:bg-gray-200 dark:hover:bg-gray-800'}`}
+                onClick={() => selectAndLog({ id: contact.username, name: contact.username, isGroup: false, isGroupAdmin: false })}
+                className={`p-3 rounded-md mb-1 cursor-pointer border-l-4 transition-colors ${activeChat?.id === contact.username ? 'bg-gray-200 dark:bg-gray-700 border-soviet-red' : 'border-transparent hover:bg-gray-200 dark:hover:bg-gray-800'}`}
             >
                 <p className="font-bold">{contact.username}</p>
             </div>
@@ -58,10 +88,26 @@ const ContactList: React.FC<ContactListProps> = ({ contacts, groups, activeChat,
                 {groups.map(group => (
                     <div
                         key={group.id}
-                        onClick={() => onSelectChat(group.id)}
-                        className={`p-3 rounded-md mb-1 cursor-pointer border-l-4 transition-colors ${activeChat === group.id ? 'bg-gray-200 dark:bg-gray-700 border-soviet-red' : 'border-transparent hover:bg-gray-200 dark:hover:bg-gray-800'}`}
+                        onClick={() => selectAndLog({ id: group.id, name: group.name, isGroup: true, isGroupAdmin: group.is_admin })}
+                        className={`p-3 rounded-md mb-1 cursor-pointer border-l-4 transition-colors ${activeChat?.id === group.id ? 'bg-gray-200 dark:bg-gray-700 border-soviet-red' : 'border-transparent hover:bg-gray-200 dark:hover:bg-gray-800'}`}
                     >
-                        <p className="font-bold">{group.name}</p>
+                         <div className="flex justify-between items-center w-full">
+                            <p className="font-bold truncate pr-2" title={group.name}>{group.name}</p>
+                            <div 
+                                className="group/copy flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-soviet-red"
+                                onClick={(e) => handleCopyKey(e, group.inviteKey, group.id)}
+                                title="Скопировать ключ приглашения"
+                            >
+                                <code className="bg-gray-200 dark:bg-gray-800 px-1.5 py-0.5 rounded group-hover/copy:text-soviet-red">{group.inviteKey}</code>
+                                <div className="w-4 h-4 flex items-center justify-center">
+                                    {copiedKeyId === group.id ? (
+                                        <span className="text-green-500 font-bold">✓</span>
+                                    ) : (
+                                        <CopyIcon />
+                                    )}
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 ))}
               </>

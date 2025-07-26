@@ -114,49 +114,82 @@ export const api = {
         handleNetworkError(error);
      }
   },
-  sendMessage: async(token: string, receiver: string, content: string) => {
-      try {
-        const response = await fetch(`${API_URL}/send`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`,
-            },
-            body: JSON.stringify({ receiver, content }),
-        });
+  sendMessage: async (token: string, payload: { receiver?: string; groupId?: string; content?: string; audioFile?: File }) => {
+    try {
+        const isGroupMessage = payload.groupId !== undefined;
+        const isDirectMessage = payload.receiver !== undefined;
+
+        if (!isGroupMessage && !isDirectMessage) {
+            throw new Error('Нужно указать receiver или group_id');
+        }
+        
+        const hasContent = !!payload.content;
+        const hasAudio = !!payload.audioFile;
+
+        if (!hasContent && !hasAudio) {
+             throw new Error('sendMessage requires either "content" for text or "audioFile" for voice.');
+        }
+
+        let endpoint: string;
+        let options: RequestInit;
+
+        if (hasContent) {
+            // --- TEXT MESSAGE (JSON) ---
+            endpoint = `${API_URL}/send/message`;
+            const body = {
+                content: payload.content!,
+                ...(isGroupMessage ? { group_id: payload.groupId } : { receiver: payload.receiver }),
+            };
+            options = {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify(body),
+            };
+        } else {
+            // --- VOICE MESSAGE (FormData) ---
+            endpoint = `${API_URL}/send/voice`;
+            const formData = new FormData();
+            formData.append('audio_file', payload.audioFile!, payload.audioFile!.name);
+            if (isGroupMessage) {
+                formData.append('group_id', payload.groupId!);
+            } else {
+                formData.append('receiver', payload.receiver!);
+            }
+            options = {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` },
+                body: formData,
+            };
+        }
+
+        const response = await fetch(endpoint, options);
         if (!response.ok) {
             await handleResponseError(response, 'Не удалось отправить сообщение.');
         }
-        return response.json();
-      } catch(error) {
-          handleNetworkError(error);
-      }
-  },
-  sendVoiceMessage: async (token: string, receiver: string, file: File): Promise<{ message: string; audio_file_id: string; }> => {
-    try {
-      const formData = new FormData();
-      formData.append('receiver', receiver);
-      formData.append('file', file, 'voice.mp3');
+        return await response.json();
 
-      const response = await fetch(`${API_URL}/send/voice`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-        body: formData,
-      });
-
-      if (!response.ok) {
-        await handleResponseError(response, 'Не удалось отправить голосовое сообщение.');
-      }
-      return response.json();
     } catch (error) {
-      handleNetworkError(error);
+        handleNetworkError(error);
     }
   },
-  getGroups: async (token: string): Promise<Group[]> => {
+  getGroupMessages: async (token: string, groupId: string): Promise<ApiMessage[]> => {
     try {
-        const response = await fetch(`${API_URL}/groups/list`, {
+        const response = await fetch(`${API_URL}/group/messages?group_id=${groupId}`, {
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!response.ok) {
+            await handleResponseError(response, 'Не удалось загрузить историю сообщений группы.');
+        }
+        return await response.json();
+    } catch (error) {
+        handleNetworkError(error);
+    }
+  },
+  getGroups: async (token: string, currentUsername: string): Promise<Group[]> => {
+    try {
+        const response = await fetch(`${API_URL}/groups`, {
             method: 'GET',
             headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -166,9 +199,10 @@ export const api = {
         }
         const apiGroups: ApiGroup[] = await response.json();
         return apiGroups.map(g => ({
-            id: g.group_id,
+            id: g.id,
             name: g.name,
-            is_admin: g.is_admin,
+            is_admin: g.admin === currentUsername,
+            inviteKey: g.invite_key,
         }));
     } catch (error) {
         handleNetworkError(error);
@@ -176,7 +210,7 @@ export const api = {
   },
   createGroup: async (token: string, name: string): Promise<{ group_id: string; invite_key: string; }> => {
     try {
-      const response = await fetch(`${API_URL}/groups/create`, {
+      const response = await fetch(`${API_URL}/group`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -194,7 +228,7 @@ export const api = {
   },
   addGroupMember: async (token: string, invite_key: string, username: string): Promise<{ message: string }> => {
     try {
-      const response = await fetch(`${API_URL}/groups/join`, {
+      const response = await fetch(`${API_URL}/group/join`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -212,8 +246,8 @@ export const api = {
   },
   deleteGroup: async (token: string, groupId: string): Promise<void> => {
      try {
-      const response = await fetch(`${API_URL}/groups/${groupId}`, {
-        method: 'POST',
+      const response = await fetch(`${API_URL}/group/${groupId}`, {
+        method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` },
       });
       if (!response.ok) {
@@ -228,7 +262,7 @@ export const api = {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch(`${API_URL}/upload?user_id=${encodeURIComponent(userId)}`, {
+      const response = await fetch(`${API_URL}/file?user_id=${encodeURIComponent(userId)}`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -248,7 +282,7 @@ export const api = {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch(`${API_URL}/upload/text?user_id=${encodeURIComponent(userId)}`, {
+      const response = await fetch(`${API_URL}/text?user_id=${encodeURIComponent(userId)}`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -269,7 +303,7 @@ export const api = {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch(`${API_URL}/upload/text/${fileId}?user_id=${encodeURIComponent(userId)}`, {
+      const response = await fetch(`${API_URL}/text/${fileId}?user_id=${encodeURIComponent(userId)}`, {
         method: 'PUT',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -301,7 +335,7 @@ export const api = {
   },
   deleteFile: async (token: string, fileId: string): Promise<{ message: string }> => {
     try {
-      const response = await fetch(`${API_URL}/delete/${fileId}`, {
+      const response = await fetch(`${API_URL}/file/${fileId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -316,13 +350,28 @@ export const api = {
   },
   getFileBlob: async (token: string, fileId: string): Promise<Blob> => {
     try {
-      const response = await fetch(`${API_URL}/files/${fileId}`, {
+      const response = await fetch(`${API_URL}/file/${fileId}`, {
         method: 'GET',
         headers: { Authorization: `Bearer ${token}` },
       });
 
       if (!response.ok) {
         await handleResponseError(response, 'Не удалось скачать файл.');
+      }
+      return response.blob();
+    } catch (error) {
+      handleNetworkError(error);
+    }
+  },
+  getVoiceMessageBlob: async (token: string, fileId: string): Promise<Blob> => {
+    try {
+      const response = await fetch(`${API_URL}/voice/${fileId}`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!response.ok) {
+        await handleResponseError(response, 'Не удалось скачать голосовое сообщение.');
       }
       return response.blob();
     } catch (error) {
@@ -363,6 +412,45 @@ export const api = {
       handleNetworkError(error);
     }
   },
+  getAvatarBlob: async (token: string): Promise<Blob | null> => {
+    try {
+      const response = await fetch(`${API_URL}/profile/avatar`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (response.status === 404) {
+        return null; // No avatar found, which is not an error
+      }
+      if (!response.ok) {
+        await handleResponseError(response, 'Не удалось загрузить аватар.');
+      }
+      return response.blob();
+    } catch (error) {
+      handleNetworkError(error);
+    }
+  },
+  uploadAvatar: async (token: string, file: File): Promise<{ message: string; avatar_url: string; }> => {
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch(`${API_URL}/profile/avatar`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        await handleResponseError(response, 'Не удалось загрузить аватар.');
+      }
+      return response.json();
+    } catch (error) {
+      handleNetworkError(error);
+    }
+  },
   getTasks: async (token: string): Promise<CalendarEvent[]> => {
     try {
       const response = await fetch(`${API_URL}/tasks`, {
@@ -386,7 +474,7 @@ export const api = {
   addTask: async (token: string, taskData: { title: string; date: string; description: string; }): Promise<{ id: string }> => {
     try {
       const { title, date, description } = taskData;
-      const response = await fetch(`${API_URL}/tasks`, {
+      const response = await fetch(`${API_URL}/task`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -404,8 +492,8 @@ export const api = {
   },
   deleteTask: async (token: string, taskId: string): Promise<void> => {
     try {
-      const response = await fetch(`${API_URL}/tasks/${taskId}`, {
-        method: 'POST',
+      const response = await fetch(`${API_URL}/task/${taskId}`, {
+        method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` },
       });
       if (!response.ok) {

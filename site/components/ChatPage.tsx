@@ -1,4 +1,5 @@
-import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import type { Message, Contact, ApiMessage, Group } from '../types';
 import { api } from '../services/apiService';
 import ContactList from './ContactList';
@@ -12,12 +13,17 @@ interface ChatPageProps {
   onLogout: () => void;
 }
 
-const API_URL = 'http://127.0.0.1:8000';
+interface ActiveChat {
+  id: string;
+  name: string;
+  isGroup: boolean;
+  isGroupAdmin: boolean;
+}
 
 const ChatPage: React.FC<ChatPageProps> = ({ user, token, onLogout }) => {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
-  const [activeChat, setActiveChat] = useState<string | null>(null);
+  const [activeChat, setActiveChat] = useState<ActiveChat | null>(null);
   const [messages, setMessages] = useState<{ [key: string]: Message[] }>({});
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
@@ -30,14 +36,11 @@ const ChatPage: React.FC<ChatPageProps> = ({ user, token, onLogout }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const pollingIntervalRef = useRef<number | null>(null);
 
-  const activeChatInfo = useMemo(() => {
-    if (!activeChat) return null;
-    const contact = contacts.find(c => c.username === activeChat);
-    if (contact) return { id: contact.username, name: contact.username, isGroup: false, isGroupAdmin: false };
-    const group = groups.find(g => g.id === activeChat);
-    if (group) return { id: group.id, name: group.name, isGroup: true, isGroupAdmin: group.is_admin };
-    return null;
-  }, [activeChat, contacts, groups]);
+  // --- DEBUG LOGGING ---
+  useEffect(() => {
+    console.log('%c[DEBUG] ChatPage: `activeChat` state changed to:', 'color: #00AACC; font-weight: bold;', activeChat);
+  }, [activeChat]);
+  // --- END DEBUG LOGGING ---
 
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -76,13 +79,13 @@ const ChatPage: React.FC<ChatPageProps> = ({ user, token, onLogout }) => {
   }, [isResizing, handleMouseMove, handleMouseUp]);
 
   const fetchInitialData = useCallback(async () => {
-     if (!token) return;
+     if (!token || !user.username) return;
      try {
         setIsLoading(true);
         setError(null);
         const [friendsData, groupsData] = await Promise.all([
             api.getFriends(token),
-            api.getGroups(token),
+            api.getGroups(token, user.username),
         ]);
         setContacts(friendsData);
         setGroups(groupsData);
@@ -97,7 +100,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ user, token, onLogout }) => {
      } finally {
         setIsLoading(false);
      }
-  }, [token, onLogout]);
+  }, [token, onLogout, user.username]);
 
   useEffect(() => {
     fetchInitialData();
@@ -105,30 +108,44 @@ const ChatPage: React.FC<ChatPageProps> = ({ user, token, onLogout }) => {
 
   // Fetch message history and poll for new messages
   useEffect(() => {
+    console.log('%c[DEBUG] ChatPage: Polling useEffect triggered. Current activeChat:', 'color: #9933CC;', activeChat);
     setError(null); // Clear errors from previous chat
     if (pollingIntervalRef.current) {
+      console.log('%c[DEBUG] ChatPage: Clearing previous polling interval.', 'color: #9933CC;');
       clearInterval(pollingIntervalRef.current);
     }
 
     if (!activeChat || !token) {
+       console.log('%c[DEBUG] ChatPage: Polling useEffect stopped. No active chat or token.', 'color: #9933CC;');
       return;
     }
     
+    console.log(`%c[DEBUG] ChatPage: Starting to fetch messages for chat ID: ${activeChat.id}`, 'color: #9933CC; font-weight: bold;');
     const fetchAndProcessMessages = async () => {
       try {
-        const history: ApiMessage[] = await api.getMessages(token);
+        let chatMessages: ApiMessage[];
 
-        const chatMessages = history.filter(
-          msg => (msg.sender === user.username && msg.receiver === activeChat) || (msg.sender === activeChat && msg.receiver === user.username)
-        );
+        if (activeChat.isGroup) {
+          // Fetch messages for the specific group
+          chatMessages = await api.getGroupMessages(token, activeChat.id);
+        } else {
+          // Fetch all direct messages and filter for the specific conversation
+          const history: ApiMessage[] = await api.getMessages(token);
+          chatMessages = history.filter(
+            msg => (msg.sender === user.username && msg.receiver === activeChat.id) || (msg.sender === activeChat.id && msg.receiver === user.username)
+          );
+        }
 
         const processedMessages: Message[] = chatMessages.map((msg): Message => {
+            // Extract file ID from the backend URL path like /files/xxxxxxxx
+            const audioFileId = msg.audio_url?.split('/').pop() || undefined;
+            
             return {
               id: `${msg.sender}-${msg.timestamp}`,
               sender: msg.sender,
               receiver: msg.receiver,
               content: msg.content ?? null,
-              audioUrl: msg.audio_url ? `${API_URL}${msg.audio_url}` : undefined,
+              audioFileId: audioFileId, // Pass ID to the player
               timestamp: new Date(msg.timestamp).getTime(),
               isSentByMe: msg.sender === user.username,
             };
@@ -137,7 +154,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ user, token, onLogout }) => {
           
         setMessages(prev => ({
           ...prev,
-          [activeChat]: processedMessages,
+          [activeChat.id]: processedMessages,
         }));
 
       } catch (err: any) {
@@ -164,85 +181,82 @@ const ChatPage: React.FC<ChatPageProps> = ({ user, token, onLogout }) => {
   }, [activeChat, token, user.username, onLogout]);
 
 
-  const handleSendMessage = async (content: string) => {
-    if (!activeChat || !token) return;
+  const handleSendMessage = async (payload: { content?: string; audioFile?: File }) => {
+    console.log('%c[DEBUG] ChatPage: handleSendMessage triggered.', 'color: #FF6600; font-weight: bold;');
+    console.log('%c[DEBUG] ChatPage: Current activeChat state:', 'color: #FF6600;', activeChat);
+
+    if (!activeChat || !token) {
+        console.error('%c[ERROR] ChatPage: handleSendMessage failed. No active chat or token.', 'color: red; font-weight: bold;', { activeChat, token: !!token });
+        return;
+    }
+    if (!payload.content && !payload.audioFile) return;
 
     setError(null);
 
-    const recipient = contacts.find(c => c.username === activeChat) || groups.find(g => g.id === activeChat);
-    if (!recipient) {
-      setError("Ошибка: Получатель не найден.");
-      return;
+    let optimisticMessage: Message;
+    let audioBlobUrl: string | undefined;
+
+    if (payload.content) {
+        optimisticMessage = {
+            id: `${user.username}-${Date.now()}`,
+            sender: user.username,
+            receiver: activeChat.id,
+            content: payload.content,
+            timestamp: Date.now(),
+            isSentByMe: true,
+        };
+    } else if (payload.audioFile) {
+        audioBlobUrl = URL.createObjectURL(payload.audioFile);
+        optimisticMessage = {
+            id: `${user.username}-${Date.now()}`,
+            sender: user.username,
+            receiver: activeChat.id,
+            content: null,
+            audioUrl: audioBlobUrl,
+            timestamp: Date.now(),
+            isSentByMe: true,
+        };
+    } else {
+        return; // Should not happen
     }
-
-    const optimisticMessage: Message = {
-      id: `${user.username}-${Date.now()}`,
-      sender: user.username,
-      receiver: activeChat,
-      content: content,
-      timestamp: Date.now(),
-      isSentByMe: true,
-    };
-
+    
     setMessages(prev => ({
-      ...prev,
-      [activeChat]: [...(prev[activeChat] || []), optimisticMessage],
+        ...prev,
+        [activeChat.id]: [...(prev[activeChat.id] || []), optimisticMessage],
     }));
 
     try {
-      await api.sendMessage(token, activeChat, content);
-    } catch (err: any) {
-      console.error("Не удалось отправить сообщение:", err);
-      setError(err.message || "Не удалось отправить сообщение. Пожалуйста, попробуйте еще раз.");
-      
-      // Revert optimistic update on failure
-      setMessages(prev => {
-          const chatMessages = prev[activeChat] || [];
-          return {
-              ...prev,
-              [activeChat]: chatMessages.filter(msg => msg.id !== optimisticMessage.id)
-          }
-      });
-    }
-  };
-  
-  const handleSendVoiceMessage = async (audioFile: File) => {
-    if (!activeChat || !token) return;
-
-    setError(null);
-    const audioUrl = URL.createObjectURL(audioFile);
-
-    const optimisticMessage: Message = {
-      id: `${user.username}-${Date.now()}`,
-      sender: user.username,
-      receiver: activeChat,
-      content: null,
-      audioUrl: audioUrl,
-      timestamp: Date.now(),
-      isSentByMe: true,
-    };
-
-    setMessages(prev => ({
-      ...prev,
-      [activeChat]: [...(prev[activeChat] || []), optimisticMessage],
-    }));
-
-    try {
-        await api.sendVoiceMessage(token, activeChat, audioFile);
-        // Polling will replace the blob url with the server url.
-    } catch (err: any) {
-        console.error("Не удалось отправить голосовое сообщение:", err);
-        setError(err.message || "Не удалось отправить голосовое сообщение. Пожалуйста, попробуйте еще раз.");
+        const apiPayload: { receiver?: string; groupId?: string; content?: string; audioFile?: File; } = {
+            ...payload,
+            ...(activeChat.isGroup ? { groupId: activeChat.id } : { receiver: activeChat.id })
+        };
         
+        console.log('%c[DEBUG] ChatPage: Constructed apiPayload:', 'color: #FF6600;', apiPayload);
+        
+        if (!apiPayload.groupId && !apiPayload.receiver) {
+             console.error('%c[FATAL] ChatPage: apiPayload constructed WITHOUT receiver or groupId! This is the root cause.', 'color: red; font-weight: bold;', { apiPayload, activeChat });
+        }
+        
+        await api.sendMessage(token, apiPayload);
+        // On success, polling will handle the final state. 
+        // For voice message, polling will replace the blob url.
+    } catch (err: any) {
+        const errorMessage = err.message || "Не удалось отправить сообщение. Пожалуйста, попробуйте еще раз.";
+        console.error("Ошибка отправки сообщения:", err);
+        setError(errorMessage);
+      
         // Revert optimistic update on failure
         setMessages(prev => {
-            const chatMessages = prev[activeChat] || [];
+            const chatMessages = prev[activeChat.id] || [];
             return {
                 ...prev,
-                [activeChat]: chatMessages.filter(msg => msg.id !== optimisticMessage.id)
+                [activeChat.id]: chatMessages.filter(msg => msg.id !== optimisticMessage.id)
             }
         });
-        URL.revokeObjectURL(audioUrl);
+        
+        if (audioBlobUrl) {
+            URL.revokeObjectURL(audioBlobUrl);
+        }
     }
   };
   
@@ -295,24 +309,30 @@ const ChatPage: React.FC<ChatPageProps> = ({ user, token, onLogout }) => {
     }
   };
 
-  const handleDeleteChat = async (idToDelete: string) => {
-    if (!activeChatInfo) return;
+  const handleDeleteChat = async () => {
+    if (!activeChat) return;
 
-    const isGroup = activeChatInfo.isGroup;
-    const chatName = activeChatInfo.name;
+    const idToDelete = activeChat.id;
+    const isGroup = activeChat.isGroup;
+    const chatName = activeChat.name;
     const confirmMessage = isGroup
       ? `Вы уверены, что хотите удалить группу "${chatName}"? Это действие необратимо.`
       : `Вы уверены, что хотите удалить этот чат с "${chatName}"? Вся история сообщений будет безвозвратно удалена.`;
 
     if (window.confirm(confirmMessage)) {
-        setActiveChat(null);
-        
         try {
             if (isGroup) {
+                // Perform the API call first to ensure it succeeds before changing the UI.
                 await api.deleteGroup(token, idToDelete);
+            }
+            // For DMs, there's no API call specified, so it remains a client-side removal.
+            
+            // On successful deletion (or for client-side only removal), update the UI state.
+            setActiveChat(null);
+            
+            if (isGroup) {
                 setGroups(prev => prev.filter(g => g.id !== idToDelete));
             } else {
-                // This is a client-side only removal.
                 setContacts(prev => prev.filter(c => c.username !== idToDelete));
             }
             
@@ -323,7 +343,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ user, token, onLogout }) => {
             });
         } catch (err: any) {
             alert(err.message || "Не удалось удалить чат/группу.");
-            // Re-fetch to get the correct state from the server on failure
+            // On failure, re-fetch data to ensure UI is in sync with the server.
             await fetchInitialData();
         }
     }
@@ -356,10 +376,9 @@ const ChatPage: React.FC<ChatPageProps> = ({ user, token, onLogout }) => {
 
       <div className="flex-1 min-w-0">
          <ChatWindow
-            activeChatInfo={activeChatInfo}
-            messages={messages[activeChat || ''] || []}
+            activeChatInfo={activeChat}
+            messages={messages[activeChat?.id || ''] || []}
             onSendMessage={handleSendMessage}
-            onSendVoiceMessage={handleSendVoiceMessage}
             isLoading={isMessagesLoading}
             onDeleteChat={handleDeleteChat}
             error={error}

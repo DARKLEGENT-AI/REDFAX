@@ -2,8 +2,9 @@ export interface Message {
   id: string;
   sender: string;
   receiver: string;
-  content: string | null; // Can be null for voice messages
-  audioUrl?: string; // URL for the audio file
+  content: string | null;
+  audioUrl?: string;
+  audioFileId?: string;
   timestamp: number;
   isSentByMe: boolean;
 }
@@ -11,9 +12,9 @@ export interface Message {
 export interface ApiMessage {
   sender: string;
   receiver: string;
-  content: string | null; // Can be null for voice messages
-  audio_url?: string | null; // URL path for the audio file
-  timestamp: string; // ISO 8601 format from server
+  content: string | null;
+  audio_url?: string | null;
+  timestamp: string;
 }
 
 export interface ApiFile {
@@ -24,45 +25,41 @@ export interface ApiFile {
 
 export interface Contact {
   username: string;
-  // public_key has been removed to match the new API
 }
 
 export interface Group {
   id: string;
   name: string;
   is_admin: boolean;
+  inviteKey: string;
 }
 
 export interface ApiGroup {
-    group_id: string;
+    id: string;
     name: string;
-    is_admin: boolean;
+    admin: string;
+    invite_key: string;
 }
 
-// The types below are no longer used with the new API
-// but are kept for other parts of the app.
-
 export interface UserFile {
-  id: string; // from file_id
-  name: string; // from filename
+  id: string;
+  name: string;
   contentType: string;
-  content?: string; // For text file content
-  url?: string; // For blob object URLs
+  content?: string;
+  url?: string;
 }
 
 export interface CalendarEvent {
-  id: string;
-  date: string; // YYYY-MM-DD format
+  id:string;
+  date: string;
   title: string;
   description: string;
 }
 
 export interface ApiProfile {
-    country?: string;
-    city?: string;
-    birth_date?: string; // YYYY-MM-DD
-    gender?: string;
-    languages?: string[];
+    username: string;
+    full_name?: string;
+    birth_date?: string;
     bio?: string;
-    nickname?: string;
+    avatar_url?: string | null;
 }

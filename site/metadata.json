@@ -1,5 +1,5 @@
 {
-  "name": "RED FAX v3.0",
+  "name": "RED FAX v4.0",
   "description": "A minimalist, fast, and secure fax application with a red, black, and white aesthetic, inspired by communism minimalism. It features end-to-end encryption for all communications.",
   "requestFramePermissions": [
     "camera",

@@ -1,6 +1,28 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import type { ApiProfile } from '../types';
 import { api } from '../services/apiService';
+
+// --- Icons ---
+
+const PlaceholderUserIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-full w-full text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+    </svg>
+);
+
+const UploadIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+    </svg>
+);
+
+const LoadingSpinner = () => (
+    <svg className="animate-spin h-8 w-8 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+    </svg>
+);
+
 
 // --- Editable Field Component ---
 interface EditableFieldProps {
@@ -49,11 +71,8 @@ const EditableField: React.FC<EditableFieldProps> = ({ label, name, value, isEdi
 
 // --- UI State Interface ---
 interface ProfileData {
-  nickname: string;
+  fullName: string;
   birthDate: string; // Stored as DD.MM.YYYY for UI
-  location: string; // "Country, City"
-  gender: string;
-  languages: string; // "lang1, lang2"
   bio: string;
 }
 
@@ -78,20 +97,13 @@ const apiToUi = (apiData: ApiProfile): ProfileData => {
   }
 
   return {
-    nickname: apiData.nickname || '',
+    fullName: apiData.full_name || '',
     birthDate: birthDate,
-    location: [apiData.country, apiData.city].filter(Boolean).join(', '),
-    gender: apiData.gender || '',
-    languages: (apiData.languages || []).join(', '),
     bio: apiData.bio || '',
   };
 };
 
 const uiToApi = (uiData: ProfileData): Partial<ApiProfile> => {
-  const locationParts = uiData.location.split(',').map(s => s.trim());
-  const country = locationParts[0] || undefined;
-  const city = locationParts[1] || undefined;
-
   let birth_date: string | undefined;
   if (uiData.birthDate) {
     const dateParts = uiData.birthDate.split('.');
@@ -104,23 +116,16 @@ const uiToApi = (uiData: ProfileData): Partial<ApiProfile> => {
   }
 
   return {
-    nickname: uiData.nickname || undefined,
+    full_name: uiData.fullName || undefined,
     birth_date: birth_date,
-    country: country,
-    city: city,
-    gender: uiData.gender || undefined,
-    languages: uiData.languages.split(',').map(s => s.trim()).filter(Boolean),
     bio: uiData.bio || undefined,
   };
 };
 
 
 const initialProfileState: ProfileData = {
-    nickname: '',
+    fullName: '',
     birthDate: '',
-    location: '',
-    gender: '',
-    languages: '',
     bio: '',
 };
 
@@ -133,15 +138,39 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ user, token }) => {
   const [savedProfileData, setSavedProfileData] = useState<ProfileData>(initialProfileState);
   const [profileData, setProfileData] = useState<ProfileData>(initialProfileState);
 
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const avatarUrlRef = useRef<string | null>(null);
+
   useEffect(() => {
-    const fetchProfile = async () => {
+    const fetchProfileData = async () => {
       setIsLoading(true);
       setError(null);
+
       try {
-        const data = await api.getProfile(token);
-        const uiData = apiToUi(data);
+        const profile = await api.getProfile(token);
+        const uiData = apiToUi(profile);
         setSavedProfileData(uiData);
         setProfileData(uiData);
+
+        if (avatarUrlRef.current) {
+          URL.revokeObjectURL(avatarUrlRef.current);
+          avatarUrlRef.current = null;
+        }
+
+        if (profile.avatar_url) {
+          const blob = await api.getAvatarBlob(token);
+          if (blob) {
+            const objectUrl = URL.createObjectURL(blob);
+            setAvatarUrl(objectUrl);
+            avatarUrlRef.current = objectUrl;
+          } else {
+            setAvatarUrl(null);
+          }
+        } else {
+          setAvatarUrl(null);
+        }
       } catch (err: any) {
         setError(err.message || 'Не удалось загрузить профиль.');
         console.error(err);
@@ -149,14 +178,56 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ user, token }) => {
         setIsLoading(false);
       }
     };
+
     if (token) {
-        fetchProfile();
+        fetchProfileData();
+    }
+    
+    // Cleanup object URL on unmount
+    return () => {
+        if (avatarUrlRef.current) {
+            URL.revokeObjectURL(avatarUrlRef.current);
+        }
     }
   }, [token]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       const { name, value } = e.target;
       setProfileData(prev => ({...prev, [name]: value}));
+  };
+  
+  const handleAvatarClick = () => {
+    if (!isUploading) {
+        fileInputRef.current?.click();
+    }
+  };
+  
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setError(null);
+    setIsUploading(true);
+
+    try {
+        await api.uploadAvatar(token, file);
+        // Refetch avatar to display the new one
+        const blob = await api.getAvatarBlob(token);
+        if (avatarUrlRef.current) {
+            URL.revokeObjectURL(avatarUrlRef.current);
+        }
+        if (blob) {
+            const objectUrl = URL.createObjectURL(blob);
+            setAvatarUrl(objectUrl);
+            avatarUrlRef.current = objectUrl;
+        }
+    } catch (err: any) {
+        setError(err.message || "Не удалось загрузить аватар.");
+    } finally {
+        setIsUploading(false);
+        // Reset file input
+        if(e.target) e.target.value = '';
+    }
   };
 
   const handleEdit = () => {
@@ -197,24 +268,51 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ user, token }) => {
 
   return (
     <div className="bg-light-primary dark:bg-dark-primary text-dark-primary dark:text-light-primary p-6 md:p-8 h-full overflow-y-auto font-sans">
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileSelect}
+        className="hidden"
+        accept="image/*"
+        disabled={isUploading}
+      />
+
       {/* --- Header Section --- */}
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-8 gap-4">
         <div className="flex items-center gap-4 w-full md:w-auto">
-          <div className="w-20 h-20 rounded-full bg-gray-300 dark:bg-gray-600 flex-shrink-0">
-            {/* Placeholder for an avatar image */}
+          <div className="w-36 h-36 rounded-lg bg-gray-300 dark:bg-gray-600 flex-shrink-0 relative group">
+            {isUploading ? (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 rounded-lg">
+                    <LoadingSpinner />
+                </div>
+            ) : avatarUrl ? (
+                <img src={avatarUrl} alt="Аватар пользователя" className="w-full h-full rounded-lg object-cover" />
+            ) : (
+                <PlaceholderUserIcon />
+            )}
+            {!isUploading && (
+                 <div
+                    onClick={handleAvatarClick}
+                    className="absolute inset-0 bg-black/50 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                    role="button"
+                    aria-label="Загрузить новый аватар"
+                >
+                    <UploadIcon />
+                </div>
+            )}
           </div>
           <div className="w-full">
             {isEditing ? (
                  <input
                     type="text"
-                    name="nickname"
-                    value={profileData.nickname}
+                    name="fullName"
+                    value={profileData.fullName}
                     onChange={handleInputChange}
-                    placeholder="Ваш псевдоним"
+                    placeholder="Ваше полное имя"
                     className={`text-3xl font-bold ${inputHeaderClass}`}
                   />
             ) : (
-                <h1 className="text-3xl font-bold">{savedProfileData.nickname || user.username}</h1>
+                <h1 className="text-3xl font-bold">{savedProfileData.fullName || user.username}</h1>
             )}
 
             <div className="flex items-center mt-1">
@@ -246,11 +344,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ user, token }) => {
 
       {/* --- Main Content --- */}
       <div className="bg-light-secondary dark:bg-dark-secondary p-4 md:p-6 rounded-lg shadow-lg dark:shadow-none">
-          <EditableField label="Псевдоним" name="nickname" value={profileData.nickname} isEditing={isEditing} onChange={handleInputChange} placeholder="RedDan" />
           <EditableField label="Дата рождения" name="birthDate" value={profileData.birthDate} isEditing={isEditing} onChange={handleInputChange} placeholder="ДД.ММ.ГГГГ" />
-          <EditableField label="Страна, город" name="location" value={profileData.location} isEditing={isEditing} onChange={handleInputChange} placeholder="Russia, Saratov" />
-          <EditableField label="Пол" name="gender" value={profileData.gender} isEditing={isEditing} onChange={handleInputChange} placeholder="male" />
-          <EditableField label="Языки" name="languages" value={profileData.languages} isEditing={isEditing} onChange={handleInputChange} placeholder="ru, en" />
           <EditableField label="Биография" name="bio" value={profileData.bio} isEditing={isEditing} onChange={handleInputChange} placeholder="Программист и коммунист" isTextarea />
         </div>
     </div>
