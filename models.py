@@ -12,6 +12,7 @@ client = AsyncIOMotorClient(MONGO_URI)
 db = client["messenger"]
 fs_bucket = AsyncIOMotorGridFSBucket(db)
 voice_fs_bucket = AsyncIOMotorGridFSBucket(db, bucket_name="voice_fs")
+avatar_fs_bucket = AsyncIOMotorGridFSBucket(db, bucket_name="avatars")
 
 # users: коллекция пользователей
 users_collection = db.users
@@ -64,19 +65,22 @@ async def delete_chat(user: str, friend: str):
         ]
     })
 
-def convert_date_fields(data: dict) -> dict:
-    # Если в data есть поле birth_date типа datetime.date, конвертируем в datetime.datetime
-    bd = data.get("birth_date")
-    if bd and isinstance(bd, datetime.date) and not isinstance(bd, datetime):
-        # Преобразуем в datetime с временем 00:00:00
-        data["birth_date"] = datetime(bd.year, bd.month, bd.day)
-    return data
+def convert_date_fields(profile_data: dict) -> dict:
+    bd = profile_data.get("birth_date")
+    if bd is not None:
+        # если получили date или datetime — конвертим в ISO‑строку
+        if isinstance(bd, (date, datetime)):
+            profile_data["birth_date"] = bd.isoformat()
+        else:
+            # если уже строка (или что‑то ещё) — приводим к str на всякий случай
+            profile_data["birth_date"] = str(bd)
+    return profile_data
 
-async def update_user_profile(username: str, profile_data: dict):
-    profile_data = convert_date_fields(profile_data)
-    return await users_collection.update_one(
+async def update_user_profile(username: str, update_data: dict):
+    # Этот метод теперь принимает любой ключ, включая 'avatar_id'
+    await db.users.update_one(
         {"username": username},
-        {"$set": profile_data}
+        {"$set": update_data}
     )
 
 async def get_user_profile(username: str):

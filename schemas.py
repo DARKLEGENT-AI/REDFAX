@@ -14,12 +14,6 @@ class MessageCreate(BaseModel):
     receiver: str
     content: str
 
-class MessageOut(BaseModel):
-    sender: str
-    receiver: str
-    content: str
-    timestamp: datetime
-
 class FriendAddRequest(BaseModel):
     username: str
 
@@ -52,9 +46,12 @@ class UserProfile(BaseModel):
     languages: Optional[List[str]] = None
     bio: Optional[str] = None
     nickname: Optional[str] = None
+    avatar_url: Optional[str] = None  # <- добавили = None
 
 class UserProfileUpdate(UserProfile):
-    pass
+    # все остальные поля унаследуются, а birth_date станет Optional[str]
+    avatar_url: Optional[str] = None
+    birth_date: Optional[str] = None
 
 class TaskCreate(BaseModel):
     title: str

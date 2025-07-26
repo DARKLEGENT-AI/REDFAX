@@ -282,10 +282,17 @@ async def update_text_file_in_gridfs(
 
 @app.get("/profile", response_model=UserProfile)
 async def get_profile(current_user: dict = Depends(get_current_user)):
-    profile = await get_user_profile(current_user["username"])
-    if not profile:
-        raise HTTPException(status_code=404, detail="Profile not found")
-    return profile
+    doc = await db.users.find_one({"username": current_user["username"]})
+    if not doc:
+        raise HTTPException(404, "Профиль не найден")
+
+    return {
+        "username": doc["username"],
+        "full_name": doc.get("full_name"),
+        "bio": doc.get("bio"),
+        "birth_date": doc.get("birth_date"),
+        "avatar_url": "/profile/avatar" if doc.get("avatar_id") else None
+    }
 
 @app.put("/profile", response_model=dict)
 async def update_profile(
@@ -295,6 +302,57 @@ async def update_profile(
     update_data = {k: v for k, v in data.dict().items() if v is not None}
     await update_user_profile(current_user["username"], update_data)
     return {"message": "Profile updated"}
+
+@app.post("/profile/avatar")
+async def upload_avatar(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user)
+):
+    if not file.content_type.startswith("image/"):
+        raise HTTPException(400, "Файл должен быть изображением")
+
+    # --- 1) удаляем старый ---
+    user_doc = await db.users.find_one({"username": current_user["username"]})
+    old_id = user_doc.get("avatar_id")
+    if old_id:
+        try:
+            await avatar_fs_bucket.delete(ObjectId(old_id))
+        except:
+            pass
+
+    # --- 2) загружаем новый ---
+    data = await file.read()
+    new_id = await avatar_fs_bucket.upload_from_stream(
+        file.filename, data,
+        metadata={
+            "user_id": current_user["username"],
+            "content_type": file.content_type,
+            "uploaded_at": datetime.utcnow().isoformat()
+        }
+    )
+
+    # --- 3) сохраняем avatar_id в профиле ---
+    await db.users.update_one(
+        {"username": current_user["username"]},
+        {"$set": {"avatar_id": str(new_id)}}
+    )
+
+    return {"message": "Аватар загружен", "avatar_url": "/profile/avatar"}
+
+
+@app.get("/profile/avatar")
+async def get_avatar(current_user: dict = Depends(get_current_user)):
+    user_doc = await db.users.find_one({"username": current_user["username"]})
+    avatar_id = user_doc.get("avatar_id")
+    if not avatar_id:
+        raise HTTPException(404, "Аватар не найден")
+
+    try:
+        stream = await avatar_fs_bucket.open_download_stream(ObjectId(avatar_id))
+    except:
+        raise HTTPException(404, "Аватар не найден")
+
+    return StreamingResponse(stream, media_type=stream.metadata.get("content_type"))
 
 ### ЗАДАЧИ ###
 
@@ -339,10 +397,58 @@ async def delete_group_endpoint(
     group_id: str,
     current_user: dict = Depends(get_current_user)
 ):
-    await delete_group(group_id, current_user["username"])
-    return {"message": "Group deleted successfully"}
+    # Проверка, есть ли такая группа и текущий пользователь — её создатель
+    group = await get_group_by_id(group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Группа не найдена")
+    if group["creator"] != current_user["username"]:
+        raise HTTPException(status_code=403, detail="Только создатель может удалить группу")
+
+    # Удаляем группу
+    await db.groups.delete_one({"_id": ObjectId(group_id)})
+
+    # Удаляем все сообщения, связанные с этой группой
+    delete_result = await db.group_messages.delete_many({"group_id": group_id})
+
+    return {
+        "message": "Group and related messages deleted successfully",
+        "deleted_messages_count": delete_result.deleted_count
+    }
 
 @app.get("/groups", response_model=List[GroupInfo])
 async def list_user_groups(current_user: dict = Depends(get_current_user)):
     groups = await get_groups_for_user(current_user["username"])
     return groups
+
+@app.get("/group/messages", response_model=List[MessageOut])
+async def get_group_messages(
+    group_id: str = Query(...),
+    current_user: dict = Depends(get_current_user)
+):
+    # Проверка существования группы
+    group = await get_group_by_id(group_id)
+    if not group:
+        raise HTTPException(404, detail="Группа не найдена")
+
+    # Проверка членства пользователя
+    if current_user["username"] not in group["members"]:
+        raise HTTPException(403, detail="Вы не состоите в этой группе")
+
+    # Получаем все сообщения этой группы
+    cursor = db.group_messages.find({"group_id": group_id}).sort("timestamp", 1)
+
+    messages = []
+    async for msg in cursor:
+        audio_url = None
+        if msg.get("audio_file_id"):
+            audio_url = f"/voice/{msg['audio_file_id']}"
+
+        messages.append(MessageOut(
+            sender=msg["sender"],
+            receiver=group_id,  # в этом случае "receiver" — это id группы
+            content=decrypt_message(msg["content"]) if msg.get("content") else None,
+            audio_url=audio_url,
+            timestamp=msg["timestamp"]
+        ))
+
+    return messages
