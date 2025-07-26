@@ -104,3 +104,13 @@ class MessageOut(BaseModel):
     content: Optional[str] = None
     audio_url: Optional[str] = None
     timestamp: datetime
+
+class MessageInput(BaseModel):
+    receiver: Optional[str] = None
+    group_id: Optional[str] = None
+    content: Optional[str] = None
+
+class MessagePayload(BaseModel):
+    receiver: str | None = None
+    group_id: str | None = None
+    content: str

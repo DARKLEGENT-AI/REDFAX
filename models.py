@@ -11,6 +11,7 @@ MONGO_URI = "mongodb://root:example@localhost:27017"
 client = AsyncIOMotorClient(MONGO_URI)
 db = client["messenger"]
 fs_bucket = AsyncIOMotorGridFSBucket(db)
+voice_fs_bucket = AsyncIOMotorGridFSBucket(db, bucket_name="voice_fs")
 
 # users: коллекция пользователей
 users_collection = db.users
@@ -28,7 +29,7 @@ async def create_message(sender, receiver, content=None, audio_file_id=None):
     await db.messages.insert_one({
         "sender": sender,
         "receiver": receiver,
-        "content": encrypt_message(content) if content else None,
+        "content": content,
         "audio_file_id": audio_file_id,
         "timestamp": datetime.utcnow()
     })

@@ -1,7 +1,7 @@
 from typing import List, Dict
 from datetime import timedelta
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from schemas import *
 from models import *
 from auth import *
@@ -19,6 +19,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+### АУНТИФИКАЦИЯ ###
 
 @app.post("/register")
 async def register(user: UserCreate):
@@ -40,47 +42,104 @@ async def login(user: UserLogin):
     )
     return {"access_token": token, "token_type": "bearer"}
 
-@app.post("/send")
-async def send_message(msg: MessageCreate, current_user: dict = Depends(get_current_user)):
-    receiver = await get_user(msg.receiver)
-    if not receiver:
-        raise HTTPException(status_code=404, detail="Receiver not found")
-    encrypted = encrypt_message(msg.content)
-    await create_message(current_user["username"], msg.receiver, encrypted)
-    return {"message": "Message sent"}
+### СООБЩЕНИЯ ###
+
+@app.post("/send/message")
+async def send_message(
+    payload: MessagePayload,
+    current_user: dict = Depends(get_current_user)
+):
+    receiver = payload.receiver
+    group_id = payload.group_id
+    content = payload.content
+
+    if not receiver and not group_id:
+        raise HTTPException(400, detail="Нужно указать receiver или group_id")
+    if receiver and group_id:
+        raise HTTPException(400, detail="Одновременно нельзя указывать receiver и group_id")
+    if not content:
+        raise HTTPException(400, detail="Должен быть текст сообщения")
+
+    encrypted_content = encrypt_message(content)
+
+    if receiver:
+        rec_user = await get_user(receiver)
+        if not rec_user:
+            raise HTTPException(404, detail="Получатель не найден")
+        await create_message(
+            sender=current_user["username"],
+            receiver=receiver,
+            content=encrypted_content,
+            audio_file_id=None
+        )
+        return JSONResponse({"message": "Сообщение отправлено в личку"})
+
+    group = await get_group_by_id(group_id)
+    if not group:
+        raise HTTPException(404, detail="Группа не найдена")
+    if current_user["username"] not in group["members"]:
+        raise HTTPException(403, detail="Вы не состоите в группе")
+    await db.group_messages.insert_one({
+        "group_id": group_id,
+        "sender": current_user["username"],
+        "content": encrypted_content,
+        "audio_file_id": None,
+        "timestamp": datetime.utcnow()
+    })
+    return JSONResponse({"message": "Сообщение отправлено в группу"})
 
 @app.post("/send/voice")
 async def send_voice_message(
-    receiver: str = Form(...),
-    file: UploadFile = File(...),
+    receiver: str = Form(None),
+    group_id: str = Form(None),
+    audio_file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user)
 ):
-    if not file.content_type.startswith("audio/"):
-        raise HTTPException(status_code=400, detail="Файл должен быть аудиофайлом")
+    if not receiver and not group_id:
+        raise HTTPException(400, detail="Нужно указать receiver или group_id")
+    if receiver and group_id:
+        raise HTTPException(400, detail="Одновременно нельзя указывать receiver и group_id")
 
-    receiver_user = await get_user(receiver)
-    if not receiver_user:
-        raise HTTPException(status_code=404, detail="Получатель не найден")
+    if not audio_file.content_type.startswith("audio/"):
+        raise HTTPException(400, detail="Файл должен быть аудиофайлом")
 
-    contents = await file.read()
-    file_id = await fs_bucket.upload_from_stream(
-        file.filename,
+    contents = await audio_file.read()
+    file_id = await voice_fs_bucket.upload_from_stream(
+        audio_file.filename,
         contents,
         metadata={
             "user_id": current_user["username"],
-            "content_type": file.content_type,
+            "content_type": audio_file.content_type,
             "type": "voice"
         }
     )
+    audio_file_id = str(file_id)
 
-    await create_message(
-        sender=current_user["username"],
-        receiver=receiver,
-        content=None,
-        audio_file_id=str(file_id)
-    )
+    if receiver:
+        rec_user = await get_user(receiver)
+        if not rec_user:
+            raise HTTPException(404, detail="Получатель не найден")
+        await create_message(
+            sender=current_user["username"],
+            receiver=receiver,
+            content=None,
+            audio_file_id=audio_file_id
+        )
+        return JSONResponse({"message": "Голосовое сообщение отправлено в личку"})
 
-    return {"message": "Голосовое сообщение отправлено", "audio_file_id": str(file_id)}
+    group = await get_group_by_id(group_id)
+    if not group:
+        raise HTTPException(404, detail="Группа не найдена")
+    if current_user["username"] not in group["members"]:
+        raise HTTPException(403, detail="Вы не состоите в группе")
+    await db.group_messages.insert_one({
+        "group_id": group_id,
+        "sender": current_user["username"],
+        "content": None,
+        "audio_file_id": audio_file_id,
+        "timestamp": datetime.utcnow()
+    })
+    return JSONResponse({"message": "Голосовое сообщение отправлено в группу"})
 
 @app.get("/messages", response_model=List[MessageOut])
 async def get_messages(current_user: dict = Depends(get_current_user)):
@@ -99,6 +158,8 @@ async def get_messages(current_user: dict = Depends(get_current_user)):
             timestamp=msg["timestamp"]
         ))
     return result
+
+### ДРУЗЬЯ ###
 
 @app.post("/friends/add")
 async def add_friend(req: FriendAddRequest, current_user: dict = Depends(get_current_user)):
@@ -122,15 +183,9 @@ async def list_friends(current_user: dict = Depends(get_current_user)):
     friends = await get_friends(current_user["username"])
     return FriendListResponse(friends=[FriendInfo(username=f) for f in friends])
 
-@app.delete("/friends/messages/del")
-async def delete_chat_with_friend(
-    friend_username: str = Query(...),
-    current_user: dict = Depends(get_current_user)
-):
-    await delete_chat(current_user["username"], friend_username)
-    return {"message": f"Chat with {friend_username} deleted successfully"}
+### ФАЙЛЫ ###
 
-@app.post("/upload")
+@app.post("/file")
 async def upload_file(user_id: str, file: UploadFile = File(...)):
     contents = await file.read()
 
@@ -154,7 +209,7 @@ async def list_files(user_id: str):
         })
     return files
 
-@app.get("/files/{file_id}")
+@app.get("/file/{file_id}")
 async def get_file(file_id: str):
     try:
         stream = await fs_bucket.open_download_stream(ObjectId(file_id))
@@ -162,7 +217,15 @@ async def get_file(file_id: str):
     except Exception:
         raise HTTPException(status_code=404, detail="File not found")
     
-@app.delete("/delete/{file_id}")
+@app.get("/voice/{file_id}")
+async def get_file(file_id: str):
+    try:
+        stream = await voice_fs_bucket.open_download_stream(ObjectId(file_id))
+        return StreamingResponse(stream, media_type=stream.metadata.get("content_type"))
+    except Exception:
+        raise HTTPException(status_code=404, detail="File not found")
+    
+@app.delete("/file/{file_id}")
 async def delete_file(file_id: str):
     try:
         oid = ObjectId(file_id)
@@ -171,7 +234,7 @@ async def delete_file(file_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error deleting file: {str(e)}")
 
-@app.post("/upload/text")
+@app.post("/text")
 async def upload_text_file(
     user_id: str,
     file: UploadFile = File(...),
@@ -192,7 +255,7 @@ async def upload_text_file(
 
     return {"file_id": str(file_id)}
 
-@app.put("/upload/text/{file_id}")
+@app.put("/text/{file_id}")
 async def update_text_file_in_gridfs(
     file_id: str,
     file: UploadFile = File(...),
@@ -215,6 +278,8 @@ async def update_text_file_in_gridfs(
 
     return {"new_file_id": str(new_file_id)}
 
+### ПРОФИЛЬ ###
+
 @app.get("/profile", response_model=UserProfile)
 async def get_profile(current_user: dict = Depends(get_current_user)):
     profile = await get_user_profile(current_user["username"])
@@ -231,7 +296,9 @@ async def update_profile(
     await update_user_profile(current_user["username"], update_data)
     return {"message": "Profile updated"}
 
-@app.post("/tasks", response_model=dict)
+### ЗАДАЧИ ###
+
+@app.post("/task", response_model=dict)
 async def add_task(task: TaskCreate, current_user: dict = Depends(get_current_user)):
     task_id = await create_task(current_user["username"], task)
     return {"message": "Task added", "id": task_id}
@@ -241,14 +308,16 @@ async def get_tasks(current_user: dict = Depends(get_current_user)):
     tasks = await get_tasks_by_user(current_user["username"])
     return tasks
 
-@app.delete("/tasks/{task_id}", response_model=dict)
+@app.delete("/task/{task_id}", response_model=dict)
 async def remove_task(task_id: str, current_user: dict = Depends(get_current_user)):
     deleted = await delete_task(task_id, current_user["username"])
     if deleted == 0:
         raise HTTPException(status_code=404, detail="Task not found or not yours")
     return {"message": "Task deleted successfully"}
 
-@app.post("/groups/create")
+### ГРУППЫ ###
+
+@app.post("/group")
 async def create_group_endpoint(
     group: GroupCreate,
     current_user: dict = Depends(get_current_user)
@@ -256,7 +325,7 @@ async def create_group_endpoint(
     group_id, invite_key = await create_group(group.name, current_user["username"])
     return {"group_id": group_id, "invite_key": invite_key}
 
-@app.post("/groups/join")
+@app.post("/group/join")
 async def join_group_endpoint(
     request: JoinGroupRequest,
     current_user: dict = Depends(get_current_user)
@@ -265,7 +334,7 @@ async def join_group_endpoint(
     group = await add_user_to_group(request.invite_key, username, current_user["username"])
     return {"message": f"{username} added to group {group['name']}"}
 
-@app.delete("/groups/{group_id}")
+@app.delete("/group/{group_id}")
 async def delete_group_endpoint(
     group_id: str,
     current_user: dict = Depends(get_current_user)
@@ -273,38 +342,7 @@ async def delete_group_endpoint(
     await delete_group(group_id, current_user["username"])
     return {"message": "Group deleted successfully"}
 
-@app.get("/groups/list", response_model=List[GroupInfo])
+@app.get("/groups", response_model=List[GroupInfo])
 async def list_user_groups(current_user: dict = Depends(get_current_user)):
     groups = await get_groups_for_user(current_user["username"])
     return groups
-
-@app.post("/groups/message/send", response_model=dict)
-async def send_message_to_group(
-    message: GroupMessageCreate,
-    current_user: dict = Depends(get_current_user)
-):
-    group = await get_group_by_id(message.group_id)
-    if not group:
-        raise HTTPException(status_code=404, detail="Group not found")
-    
-    if current_user["username"] not in group["members"]:
-        raise HTTPException(status_code=403, detail="You are not a member of this group")
-    
-    await send_group_message(current_user["username"], message.group_id, message.content)
-    return {"message": "Message sent to group"}
-
-@app.get("/groups/{group_id}/messages", response_model=List[GroupMessageOut])
-async def get_group_messages_endpoint(
-    group_id: str,
-    current_user: dict = Depends(get_current_user)
-):
-    group = await get_group_by_id(group_id)
-    if not group:
-        raise HTTPException(status_code=404, detail="Group not found")
-
-    if current_user["username"] not in group["members"]:
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    messages = await get_group_messages(group_id)
-    return messages
-
