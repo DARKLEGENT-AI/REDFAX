@@ -8,6 +8,7 @@ from auth import *
 from crypto import encrypt_message, decrypt_message
 from bson import ObjectId
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, APIRouter, WebSocket, WebSocketDisconnect, Body, Query, Form
+import json
 
 app = FastAPI()
 router = APIRouter()
@@ -158,6 +159,79 @@ async def get_messages(current_user: dict = Depends(get_current_user)):
             timestamp=msg["timestamp"]
         ))
     return result
+
+@app.post("/send/file")
+async def send_file_message(
+    receiver: str = Form(None),
+    group_id: str = Form(None),
+    file: UploadFile = File(None),
+    file_id: str = Form(None),
+    current_user: dict = Depends(get_current_user)
+):
+    if not receiver and not group_id:
+        raise HTTPException(400, detail="Нужно указать либо receiver, либо group_id")
+    if receiver and group_id:
+        raise HTTPException(400, detail="Нельзя указать одновременно receiver и group_id")
+
+    if not file and not file_id:
+        raise HTTPException(400, detail="Нужно передать либо file, либо file_id")
+    if file and file_id:
+        raise HTTPException(400, detail="Укажите либо file, либо file_id, не оба")
+
+    # Загружаем файл, если передан
+    uploaded_file_id = None
+    if file:
+        contents = await file.read()
+        result_id = await fs_bucket.upload_from_stream(
+            file.filename,
+            contents,
+            metadata={
+                "user_id": current_user["username"],
+                "content_type": file.content_type,
+                "type": "generic"
+            }
+        )
+        uploaded_file_id = str(result_id)
+    else:
+        # Проверка, существует ли указанный file_id
+        try:
+            file_obj = await fs_bucket.find({"_id": ObjectId(file_id)}).to_list(1)
+            if not file_obj:
+                raise HTTPException(404, detail="Указанный файл не найден")
+            uploaded_file_id = file_id
+        except Exception:
+            raise HTTPException(400, detail="Неверный file_id")
+
+    # Сохраняем сообщение
+    if receiver:
+        rec_user = await get_user(receiver)
+        if not rec_user:
+            raise HTTPException(404, detail="Получатель не найден")
+
+        await create_message(
+            sender=current_user["username"],
+            receiver=receiver,
+            content=None,
+            audio_file_id=None,
+            file_id=uploaded_file_id  # ← Новый аргумент в функции
+        )
+        return {"message": "Файл отправлен в личку"}
+
+    group = await get_group_by_id(group_id)
+    if not group:
+        raise HTTPException(404, detail="Группа не найдена")
+    if current_user["username"] not in group["members"]:
+        raise HTTPException(403, detail="Вы не состоите в группе")
+
+    await db.group_messages.insert_one({
+        "group_id": group_id,
+        "sender": current_user["username"],
+        "content": None,
+        "audio_file_id": None,
+        "file_id": uploaded_file_id,
+        "timestamp": datetime.utcnow()
+    })
+    return {"message": "Файл отправлен в группу"}
 
 ### ДРУЗЬЯ ###
 
@@ -451,3 +525,47 @@ async def get_group_messages(
         ))
 
     return messages
+
+### WEBRTC ЗВОНКИ ###
+
+active_connections_ws: Dict[str, WebSocket] = {}
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    try:
+        current_user = await get_current_user_ws(websocket)
+    except WebSocketException:
+        return
+
+    username = current_user["username"]
+    await websocket.accept()
+    active_connections_ws[username] = websocket
+    print(f"🔗 {username} подключился")
+
+    try:
+        while True:
+            try:
+                raw = await websocket.receive_text()
+                msg = json.loads(raw)
+                to_user = msg.get("to")
+                payload = msg.get("data")
+
+                if not to_user or not payload:
+                    print(f"⚠️ Пустой to или data от {username}: {msg}")
+                    continue
+
+                if to_user in active_connections_ws:
+                    print(f"➡️ Пересылка от {username} к {to_user}")
+                    await active_connections_ws[to_user].send_text(json.dumps({
+                        "from": username,
+                        "data": payload
+                    }))
+                else:
+                    print(f"❌ {to_user} не в сети")
+            except Exception as e:
+                print(f"💥 Ошибка при обработке сообщения от {username}: {e}")
+                break  # выходим из while
+    except WebSocketDisconnect:
+        print(f"🔌 {username} отключился")
+    finally:
+        active_connections_ws.pop(username, None)

@@ -4,6 +4,9 @@ from datetime import datetime, timedelta
 from fastapi import HTTPException, Depends
 from fastapi.security import OAuth2PasswordBearer
 from models import get_user
+from jose import JWTError, jwt
+from fastapi import WebSocket, WebSocketException
+from starlette.status import WS_1008_POLICY_VIOLATION
 
 SECRET_KEY = "mysecretkeyforjwt"
 ALGORITHM = "HS256"
@@ -46,3 +49,17 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     if user is None:
         raise credentials_exception
     return user
+
+async def get_current_user_ws(websocket: WebSocket):
+    token = websocket.query_params.get("token")
+    if not token:
+        raise WebSocketException(code=WS_1008_POLICY_VIOLATION)
+
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise WebSocketException(code=WS_1008_POLICY_VIOLATION)
+        return {"username": username}
+    except JWTError:
+        raise WebSocketException(code=WS_1008_POLICY_VIOLATION)

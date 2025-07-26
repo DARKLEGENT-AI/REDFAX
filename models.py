@@ -26,12 +26,13 @@ async def get_user(username: str):
 async def create_user(username: str, hashed_password: str):
     return await db.users.insert_one({"username": username, "hashed_password": hashed_password})
 
-async def create_message(sender, receiver, content=None, audio_file_id=None):
+async def create_message(sender, receiver, content=None, audio_file_id=None, file_id=None):
     await db.messages.insert_one({
         "sender": sender,
         "receiver": receiver,
         "content": content,
         "audio_file_id": audio_file_id,
+        "file_id": file_id,
         "timestamp": datetime.utcnow()
     })
 
