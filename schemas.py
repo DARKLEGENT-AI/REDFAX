@@ -39,19 +39,17 @@ class FileUpdate(BaseModel):
     content: str
 
 class UserProfile(BaseModel):
-    country: Optional[str] = None
-    city: Optional[str] = None
-    birth_date: Optional[date] = None
-    gender: Optional[str] = None
-    languages: Optional[List[str]] = None
+    avatar_url: Optional[str] = None
+    birth_date: Optional[str] = None  # Храним как строку (ISO)
     bio: Optional[str] = None
-    nickname: Optional[str] = None
-    avatar_url: Optional[str] = None  # <- добавили = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    gender: Optional[str] = None
+    city: Optional[str] = None
+    country: Optional[str] = None
 
 class UserProfileUpdate(UserProfile):
-    # все остальные поля унаследуются, а birth_date станет Optional[str]
-    avatar_url: Optional[str] = None
-    birth_date: Optional[str] = None
+    pass
 
 class TaskCreate(BaseModel):
     title: str
@@ -97,9 +95,12 @@ class MessageCreate(BaseModel):
 
 class MessageOut(BaseModel):
     sender: str
-    receiver: str
-    content: Optional[str] = None
-    audio_url: Optional[str] = None
+    receiver: Optional[str]
+    content: Optional[str]
+    audio_url: Optional[str]
+    file_id: Optional[str] = None
+    file_url: Optional[str] = None
+    filename: Optional[str] = None
     timestamp: datetime
 
 class MessageInput(BaseModel):

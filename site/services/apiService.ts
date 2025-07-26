@@ -172,6 +172,53 @@ export const api = {
         handleNetworkError(error);
     }
   },
+  sendFile: async (token: string, payload: { receiver?: string; groupId?: string; file?: File; fileId?: string }) => {
+    try {
+        const isGroupMessage = payload.groupId !== undefined;
+        const isDirectMessage = payload.receiver !== undefined;
+
+        if (!isGroupMessage && !isDirectMessage) {
+            throw new Error('Нужно указать receiver или group_id');
+        }
+
+        const hasNewFile = !!payload.file;
+        const hasExistingFileId = !!payload.fileId;
+
+        if (!hasNewFile && !hasExistingFileId) {
+            throw new Error('sendFile requires either "file" for a new upload or "fileId" for an existing file.');
+        }
+        
+        const endpoint = `${API_URL}/send/file`;
+        const formData = new FormData();
+
+        if (isGroupMessage) {
+            formData.append('group_id', payload.groupId!);
+        } else {
+            formData.append('receiver', payload.receiver!);
+        }
+
+        if (hasNewFile) {
+            formData.append('file', payload.file!, payload.file!.name);
+        } else {
+            formData.append('file_id', payload.fileId!);
+        }
+
+        const options = {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: formData,
+        };
+        
+        const response = await fetch(endpoint, options);
+        if (!response.ok) {
+            await handleResponseError(response, 'Не удалось отправить файл.');
+        }
+        return await response.json();
+
+    } catch (error) {
+        handleNetworkError(error);
+    }
+  },
   getGroupMessages: async (token: string, groupId: string): Promise<ApiMessage[]> => {
     try {
         const response = await fetch(`${API_URL}/group/messages?group_id=${groupId}`, {
@@ -359,6 +406,23 @@ export const api = {
         await handleResponseError(response, 'Не удалось скачать файл.');
       }
       return response.blob();
+    } catch (error) {
+      handleNetworkError(error);
+    }
+  },
+  addSystemFileToUser: async (token: string, fileId: string): Promise<void> => {
+    try {
+      const response = await fetch(`${API_URL}/files/add_system`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ file_id: fileId }),
+      });
+      if (!response.ok) {
+        await handleResponseError(response, 'Не удалось добавить системный файл.');
+      }
     } catch (error) {
       handleNetworkError(error);
     }

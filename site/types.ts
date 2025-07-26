@@ -5,6 +5,10 @@ export interface Message {
   content: string | null;
   audioUrl?: string;
   audioFileId?: string;
+  file?: {
+    id: string;
+    name: string;
+  };
   timestamp: number;
   isSentByMe: boolean;
 }
@@ -14,7 +18,11 @@ export interface ApiMessage {
   receiver: string;
   content: string | null;
   audio_url?: string | null;
+  file_id?: string;
+  filename?: string;
+  file_url?: string;
   timestamp: string;
+  groupId?: string;
 }
 
 export interface ApiFile {
@@ -57,8 +65,11 @@ export interface CalendarEvent {
 }
 
 export interface ApiProfile {
-    username: string;
-    full_name?: string;
+    first_name?: string;
+    last_name?: string;
+    gender?: 'male' | 'female' | 'other' | string;
+    city?: string;
+    country?: string;
     birth_date?: string;
     bio?: string;
     avatar_url?: string | null;

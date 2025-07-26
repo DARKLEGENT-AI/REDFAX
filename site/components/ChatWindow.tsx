@@ -1,7 +1,8 @@
-
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { Message } from '../types';
 import MessageBubble from './MessageBubble';
+
+type CallState = 'idle' | 'initiating' | 'receiving' | 'connected';
 
 interface ChatWindowProps {
   activeChatInfo: { id: string; name: string; isGroup: boolean; isGroupAdmin: boolean; } | null;
@@ -10,6 +11,16 @@ interface ChatWindowProps {
   isLoading: boolean;
   onDeleteChat: () => void;
   error: string | null;
+  onAttachmentClick: () => void;
+  onOpenFilePreview: (file: Message['file']) => void;
+  // WebRTC props
+  callState: CallState;
+  remoteStream: MediaStream | null;
+  callLogs: string[];
+  onStartCall: () => void;
+  onEndCall: () => void;
+  onAcceptCall: () => void;
+  onDeclineCall: () => void;
 }
 
 const SendIcon = () => (
@@ -21,6 +32,12 @@ const SendIcon = () => (
 const MicrophoneIcon = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v3a3 3 0 01-3 3z" />
+    </svg>
+);
+
+const AttachmentIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
     </svg>
 );
 
@@ -55,15 +72,17 @@ const PhoneIcon = () => (
 );
 
 const EndCallIcon = () => (
-     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 transform rotate-[135deg]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 transform rotate-[135deg]" fill="currentColor" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
     </svg>
 );
 
 
-const ChatWindow: React.FC<ChatWindowProps> = ({ activeChatInfo, messages, onSendMessage, isLoading, onDeleteChat, error }) => {
+const ChatWindow: React.FC<ChatWindowProps> = ({ 
+    activeChatInfo, messages, onSendMessage, isLoading, onDeleteChat, error, onAttachmentClick, onOpenFilePreview,
+    callState, remoteStream, callLogs, onStartCall, onEndCall, onAcceptCall, onDeclineCall
+}) => {
   const [inputValue, setInputValue] = useState('');
-  const [isCalling, setIsCalling] = useState(false);
   
   type RecordingState = 'idle' | 'recording' | 'paused';
   const [recordingState, setRecordingState] = useState<RecordingState>('idle');
@@ -73,16 +92,27 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ activeChatInfo, messages, onSen
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerIntervalRef = useRef<number | null>(null);
+  const callLogEndRef = useRef<HTMLDivElement>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
+  
+  useEffect(() => {
+    callLogEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [callLogs]);
 
   useEffect(scrollToBottom, [messages]);
 
+  useEffect(() => {
+    if (remoteStream && remoteAudioRef.current) {
+        remoteAudioRef.current.srcObject = remoteStream;
+    }
+  }, [remoteStream]);
+
   const cancelRecording = useCallback(() => {
     if (mediaRecorderRef.current) {
-        // Detach the onstop handler to prevent sending the message on cancel
         mediaRecorderRef.current.onstop = null;
         mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
         if (mediaRecorderRef.current.state !== 'inactive') {
@@ -99,13 +129,10 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ activeChatInfo, messages, onSen
     audioChunksRef.current = [];
   }, []);
   
-  // Clear input and recording state when chat changes
   useEffect(() => {
     setInputValue('');
-    setIsCalling(false);
-    if (recordingState !== 'idle') {
-      cancelRecording();
-    }
+    if (callState !== 'idle') onEndCall();
+    if (recordingState !== 'idle') cancelRecording();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeChatInfo, cancelRecording]);
 
@@ -115,10 +142,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ activeChatInfo, messages, onSen
       setInputValue('');
     }
   };
-
-  const handleDeleteClick = () => {
-    onDeleteChat();
-  }
 
   const formatRecordingTime = (time: number) => {
     const minutes = Math.floor(time / 60);
@@ -133,27 +156,18 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ activeChatInfo, messages, onSen
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
+      mediaRecorder.ondataavailable = (event) => { if (event.data.size > 0) audioChunksRef.current.push(event.data); };
       mediaRecorder.onstop = () => {
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        // The API expects an mp3 file, so we name it accordingly. The server should handle conversion.
         const audioFile = new File([audioBlob], `voice_message_${Date.now()}.mp3`, { type: 'audio/mpeg' });
         onSendMessage({ audioFile });
-        
         stream.getTracks().forEach(track => track.stop());
       };
 
       mediaRecorder.start();
       setRecordingState('recording');
       setRecordingTime(0);
-      timerIntervalRef.current = window.setInterval(() => {
-        setRecordingTime(prevTime => prevTime + 1);
-      }, 1000);
+      timerIntervalRef.current = window.setInterval(() => setRecordingTime(prevTime => prevTime + 1), 1000);
     } catch (err) {
       console.error("Error starting recording:", err);
       alert("Не удалось получить доступ к микрофону. Проверьте разрешения в настройках браузера.");
@@ -161,56 +175,94 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ activeChatInfo, messages, onSen
   };
   
   const pauseRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+    if (mediaRecorderRef.current?.state === 'recording') {
         mediaRecorderRef.current.pause();
         setRecordingState('paused');
-        if (timerIntervalRef.current) {
-            clearInterval(timerIntervalRef.current);
-            timerIntervalRef.current = null;
-        }
+        if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     }
   };
 
   const resumeRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'paused') {
+    if (mediaRecorderRef.current?.state === 'paused') {
         mediaRecorderRef.current.resume();
         setRecordingState('recording');
-        timerIntervalRef.current = window.setInterval(() => {
-            setRecordingTime(prevTime => prevTime + 1);
-        }, 1000);
+        timerIntervalRef.current = window.setInterval(() => setRecordingTime(prevTime => prevTime + 1), 1000);
     }
   };
 
   const sendActiveRecording = () => {
     if (mediaRecorderRef.current && (mediaRecorderRef.current.state === 'recording' || mediaRecorderRef.current.state === 'paused')) {
-      mediaRecorderRef.current.stop(); // This triggers the onstop handler which sends the file
+      mediaRecorderRef.current.stop();
     }
-    if (timerIntervalRef.current) {
-      clearInterval(timerIntervalRef.current);
-    }
+    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
     setRecordingState('idle');
   };
 
   const handleMicPauseResumeClick = () => {
-    switch(recordingState) {
-        case 'idle':
-            startRecording();
-            break;
-        case 'recording':
-            pauseRecording();
-            break;
-        case 'paused':
-            resumeRecording();
-            break;
-    }
+    if (recordingState === 'idle') startRecording();
+    else if (recordingState === 'recording') pauseRecording();
+    else if (recordingState === 'paused') resumeRecording();
   };
 
   const handleSendClick = () => {
-    if (recordingState !== 'idle') {
-        sendActiveRecording();
-    } else {
-        handleSendText();
-    }
+    if (recordingState !== 'idle') sendActiveRecording();
+    else handleSendText();
+  };
+
+  const renderCallOverlay = () => {
+    if (callState === 'idle') return null;
+
+    const CallStatus = ({children}: {children: React.ReactNode}) => (
+        <p className="text-gray-500 dark:text-gray-400 mt-1 uppercase tracking-widest min-h-[1.25rem] animate-pulse">
+            {children}
+        </p>
+    );
+
+    const CallLogWindow = () => (
+         <div className="w-full max-w-xl bg-gray-900/80 dark:bg-black/70 border border-gray-700 rounded-lg mt-8 h-48 overflow-y-auto p-4 backdrop-blur-sm">
+            <div className="font-mono text-sm text-green-400 space-y-1">
+                {callLogs.map((log, index) => <p key={index} className="animate-fade-in">{log}</p>)}
+                <div ref={callLogEndRef} />
+            </div>
+        </div>
+    );
+
+    return (
+        <div className="absolute inset-0 bg-light-primary/95 dark:bg-dark-primary/95 flex flex-col items-center justify-center z-20 transition-opacity duration-300 p-4">
+             <audio ref={remoteAudioRef} autoPlay />
+             <div className="flex flex-col items-center text-center">
+                <div className="relative w-24 h-24 mb-4">
+                    <div className="absolute inset-0 rounded-full bg-green-500/20 animate-ping"></div>
+                    <div className="relative flex items-center justify-center w-24 h-24 rounded-full bg-green-500/30 text-green-300">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
+                    </div>
+                </div>
+                <h2 className="text-4xl font-bold text-dark-primary dark:text-light-primary">{activeChatInfo?.name}</h2>
+                {callState === 'initiating' && <CallStatus>Вызов...</CallStatus>}
+                {callState === 'receiving' && <CallStatus>Входящий вызов</CallStatus>}
+                {callState === 'connected' && <CallStatus>Соединено</CallStatus>}
+            </div>
+
+            <CallLogWindow />
+
+            <div className="flex items-center gap-4 mt-8">
+                {callState === 'receiving' ? (
+                    <>
+                        <button onClick={onDeclineCall} className="bg-soviet-red hover:bg-red-700 text-white font-bold py-3 px-6 uppercase tracking-wider rounded-lg flex items-center">
+                            <EndCallIcon /> <span className="ml-2">Отклонить</span>
+                        </button>
+                        <button onClick={onAcceptCall} className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 uppercase tracking-wider rounded-lg flex items-center">
+                            <PhoneIcon /> <span className="ml-2">Принять</span>
+                        </button>
+                    </>
+                ) : (
+                    <button onClick={onEndCall} className="bg-soviet-red hover:bg-red-700 text-white font-bold py-3 px-6 uppercase tracking-wider rounded-lg flex items-center">
+                        <EndCallIcon /> <span className="ml-2">Завершить вызов</span>
+                    </button>
+                )}
+            </div>
+        </div>
+    );
   };
 
 
@@ -218,6 +270,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ activeChatInfo, messages, onSen
     return (
       <div className="w-full h-full flex flex-col items-center justify-center text-gray-500">
         <h2 className="text-2xl">Выберите чат для начала общения</h2>
+         {callState !== 'idle' && renderCallOverlay()}
       </div>
     );
   }
@@ -228,12 +281,13 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ activeChatInfo, messages, onSen
 
   return (
     <div className="h-full flex flex-col relative">
+      {renderCallOverlay()}
       <div className="p-4 bg-light-secondary dark:bg-dark-secondary border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
         <h2 className="text-xl font-bold">{activeChatInfo.name}</h2>
         <div className="flex items-center gap-2">
             <button 
-                onClick={() => setIsCalling(true)}
-                disabled={activeChatInfo.isGroup}
+                onClick={onStartCall}
+                disabled={activeChatInfo.isGroup || callState !== 'idle'}
                 className="flex items-center text-sm text-gray-600 dark:text-gray-400 hover:text-green-500 dark:hover:text-green-400 hover:bg-gray-200 dark:hover:bg-gray-700 px-3 py-1 rounded-md transition-colors duration-200 disabled:text-gray-400 disabled:dark:text-gray-600 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                 aria-label={`Позвонить ${activeChatInfo.name}`}
             >
@@ -241,7 +295,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ activeChatInfo, messages, onSen
                 <span>Позвонить</span>
             </button>
             <button 
-                onClick={handleDeleteClick}
+                onClick={onDeleteChat}
                 disabled={!canDelete}
                 title={deleteTooltip}
                 className="flex items-center text-sm text-gray-600 dark:text-gray-400 hover:text-soviet-red hover:bg-gray-200 dark:hover:bg-gray-700 px-3 py-1 rounded-md transition-colors duration-200 disabled:text-gray-400 disabled:dark:text-gray-600 disabled:cursor-not-allowed disabled:hover:bg-transparent"
@@ -263,7 +317,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ activeChatInfo, messages, onSen
             </div>
         ) : (
             messages.map(msg => (
-                <MessageBubble key={msg.id} message={msg} isGroup={activeChatInfo.isGroup} />
+                <MessageBubble key={msg.id} message={msg} isGroup={activeChatInfo.isGroup} onOpenFilePreview={onOpenFilePreview} />
             ))
         )}
         <div ref={messagesEndRef} />
@@ -277,11 +331,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ activeChatInfo, messages, onSen
         <div className="flex items-center">
             {recordingState !== 'idle' ? (
                 <>
-                    <button
-                        onClick={cancelRecording}
-                        className="text-white p-2 bg-gray-500 hover:bg-gray-600 rounded-l-md transition-colors h-[42px] flex items-center"
-                        aria-label="Отменить запись"
-                    >
+                    <button onClick={cancelRecording} className="text-white p-2 bg-gray-500 hover:bg-gray-600 rounded-l-md transition-colors h-[42px] flex items-center" aria-label="Отменить запись">
                         <CancelRecordIcon />
                     </button>
                     <div className="flex-1 flex items-center justify-center p-2 h-[42px] bg-gray-100 dark:bg-dark-primary border-t border-b border-gray-300 dark:border-gray-600">
@@ -290,22 +340,28 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ activeChatInfo, messages, onSen
                     </div>
                 </>
             ) : (
-                <input
-                    type="text"
-                    value={inputValue}
-                    onChange={(e) => setInputValue(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleSendText()}
-                    placeholder="Напишите сообщение..."
-                    className="flex-1 bg-gray-100 dark:bg-dark-primary text-dark-primary dark:text-light-primary p-2 rounded-l-md outline-none focus:ring-2 focus:ring-soviet-red/50 border border-gray-300 dark:border-gray-600"
-                />
+                <>
+                    <button
+                        onClick={onAttachmentClick}
+                        className="p-2 text-gray-500 dark:text-gray-400 hover:text-soviet-red border border-gray-300 dark:border-gray-600 border-r-0 rounded-l-md transition-colors"
+                        aria-label="Прикрепить файл"
+                    >
+                        <AttachmentIcon />
+                    </button>
+                    <input
+                        type="text"
+                        value={inputValue}
+                        onChange={(e) => setInputValue(e.target.value)}
+                        onKeyPress={(e) => e.key === 'Enter' && handleSendText()}
+                        placeholder="Напишите сообщение..."
+                        className="flex-1 bg-gray-100 dark:bg-dark-primary text-dark-primary dark:text-light-primary p-2 outline-none focus:ring-2 focus:ring-soviet-red/50 border-t border-b border-gray-300 dark:border-gray-600"
+                    />
+                </>
             )}
             <button
                 onClick={handleMicPauseResumeClick}
                 className={`text-white p-2 transition-colors ${recordingState === 'recording' ? 'bg-red-700 hover:bg-red-800' : 'bg-gray-500 hover:bg-gray-600'}`}
-                aria-label={
-                    recordingState === 'idle' ? 'Начать запись' :
-                    recordingState === 'recording' ? 'Приостановить запись' : 'Продолжить запись'
-                }
+                aria-label={ recordingState === 'idle' ? 'Начать запись' : recordingState === 'recording' ? 'Приостановить запись' : 'Продолжить запись' }
             >
                 {recordingState === 'idle' && <MicrophoneIcon />}
                 {recordingState === 'recording' && <PauseIcon />}
@@ -321,27 +377,6 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ activeChatInfo, messages, onSen
             </button>
         </div>
       </div>
-
-      {isCalling && (
-        <div className="absolute inset-0 bg-light-primary/95 dark:bg-dark-primary/95 flex flex-col items-center justify-center z-20 transition-opacity duration-300">
-          <p className="text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-widest animate-pulse">Вызов...</p>
-          <h2 className="text-4xl font-bold text-dark-primary dark:text-light-primary mb-8">{activeChatInfo.name}</h2>
-          <div className="relative w-24 h-24">
-            <div className="absolute inset-0 rounded-full bg-green-500/20 animate-ping"></div>
-            <div className="relative flex items-center justify-center w-24 h-24 rounded-full bg-green-500/30 text-green-300">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
-            </div>
-          </div>
-          <button
-            onClick={() => setIsCalling(false)}
-            className="mt-12 bg-soviet-red hover:bg-red-700 text-white font-bold py-3 px-6 uppercase tracking-wider rounded-lg flex items-center"
-            aria-label="Завершить вызов"
-          >
-            <EndCallIcon />
-            <span className="ml-2">Завершить вызов</span>
-          </button>
-        </div>
-      )}
     </div>
   );
 };

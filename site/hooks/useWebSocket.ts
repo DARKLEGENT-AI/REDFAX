@@ -6,7 +6,7 @@ import type { ApiMessage } from '../types';
 // The WebSocket URL endpoint. The token will be added as a query parameter.
 const WEBSOCKET_URL = 'ws://localhost:8000/ws';
 
-export const useWebSocket = (token: string | null, onMessage: (message: ApiMessage) => void) => {
+export const useWebSocket = (token: string | null, onMessage: (message: any) => void) => {
   const ws = useRef<WebSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   
@@ -107,6 +107,18 @@ export const useWebSocket = (token: string | null, onMessage: (message: ApiMessa
       console.error('WebSocket is not connected. Cannot send message.');
     }
   }, [token]);
+  
+  const sendSignalingMessage = useCallback((to: string, data: object) => {
+    if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+        const message = {
+            to: to,
+            data: JSON.stringify(data)
+        };
+        ws.current.send(JSON.stringify(message));
+    } else {
+        console.error('WebSocket is not connected. Cannot send signaling message.');
+    }
+  }, []);
 
-  return { isConnected, sendMessage };
+  return { isConnected, sendMessage, sendSignalingMessage };
 };

@@ -1,13 +1,15 @@
 import React from 'react';
 import type { Message } from '../types';
 import VoiceMessagePlayer from './VoiceMessagePlayer';
+import FileMessage from './FileMessage';
 
 interface MessageBubbleProps {
   message: Message;
   isGroup?: boolean;
+  onOpenFilePreview: (file: NonNullable<Message['file']>) => void;
 }
 
-const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isGroup }) => {
+const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isGroup, onOpenFilePreview }) => {
   const isSentByMe = message.isSentByMe;
   const alignment = isSentByMe ? 'justify-end' : 'justify-start';
   const bubbleColor = isSentByMe ? 'bg-gray-200 dark:bg-gray-700' : 'bg-light-secondary dark:bg-dark-secondary';
@@ -15,7 +17,7 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isGroup }) => {
   const formatTimestamp = (ts: number) => {
     return new Date(ts).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
   };
-
+  
   return (
     <div className={`flex ${alignment} mb-4`}>
       <div className={`max-w-md lg:max-w-lg px-4 py-2 rounded-lg ${bubbleColor}`}>
@@ -27,6 +29,12 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isGroup }) => {
         )}
         {(message.audioUrl || message.audioFileId) && (
             <VoiceMessagePlayer audioUrl={message.audioUrl} audioFileId={message.audioFileId} />
+        )}
+        {message.file && (
+            <FileMessage 
+              file={message.file} 
+              onClick={() => onOpenFilePreview(message.file!)}
+            />
         )}
         <p className="text-xs text-gray-500 dark:text-gray-400 text-right mt-1">{formatTimestamp(message.timestamp)}</p>
       </div>

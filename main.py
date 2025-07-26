@@ -146,18 +146,36 @@ async def send_voice_message(
 async def get_messages(current_user: dict = Depends(get_current_user)):
     raw_msgs = await get_messages_for_user(current_user["username"])
     result = []
+
     for msg in raw_msgs:
         audio_url = None
+        file_url = None
+        filename = None
+        file_id = msg.get("file_id")
+
         if msg.get("audio_file_id"):
-            audio_url = f"/files/{msg['audio_file_id']}"
+            audio_url = f"/voice/{msg['audio_file_id']}"
+
+        if file_id:
+            file_url = f"/file/{file_id}"
+            try:
+                file_doc = await db.fs.files.find_one({"_id": ObjectId(file_id)})
+                if file_doc:
+                    filename = file_doc["filename"]
+            except:
+                pass
 
         result.append(MessageOut(
             sender=msg["sender"],
             receiver=msg["receiver"],
             content=decrypt_message(msg["content"]) if msg.get("content") else None,
             audio_url=audio_url,
+            file_id=str(file_id) if file_id else None,
+            file_url=file_url,
+            filename=filename,
             timestamp=msg["timestamp"]
         ))
+
     return result
 
 @app.post("/send/file")
@@ -356,17 +374,21 @@ async def update_text_file_in_gridfs(
 
 @app.get("/profile", response_model=UserProfile)
 async def get_profile(current_user: dict = Depends(get_current_user)):
-    doc = await db.users.find_one({"username": current_user["username"]})
-    if not doc:
+    user = await db.users.find_one({"username": current_user["username"]})
+    if not user:
         raise HTTPException(404, "Профиль не найден")
 
-    return {
-        "username": doc["username"],
-        "full_name": doc.get("full_name"),
-        "bio": doc.get("bio"),
-        "birth_date": doc.get("birth_date"),
-        "avatar_url": "/profile/avatar" if doc.get("avatar_id") else None
-    }
+    return convert_date_fields({
+        "avatar_url": user.get("avatar_url"),
+        "birth_date": user.get("birth_date"),
+        "bio": user.get("bio"),
+        "first_name": user.get("first_name"),
+        "last_name": user.get("last_name"),
+        "gender": user.get("gender"),
+        "city": user.get("city"),
+        "country": user.get("country"),
+    })
+
 
 @app.put("/profile", response_model=dict)
 async def update_profile(

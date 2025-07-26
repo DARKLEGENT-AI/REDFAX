@@ -33,9 +33,10 @@ interface EditableFieldProps {
     onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
     placeholder?: string;
     isTextarea?: boolean;
+    type?: string;
 }
 
-const EditableField: React.FC<EditableFieldProps> = ({ label, name, value, isEditing, onChange, placeholder, isTextarea = false }) => {
+const EditableField: React.FC<EditableFieldProps> = ({ label, name, value, isEditing, onChange, placeholder, isTextarea = false, type = "text" }) => {
     const inputClass = "w-full bg-light-primary dark:bg-dark-primary text-dark-primary dark:text-light-primary border border-gray-300 dark:border-gray-600 focus:border-soviet-red focus:ring-1 focus:ring-soviet-red/50 p-2 outline-none rounded-md";
 
     return (
@@ -52,7 +53,7 @@ const EditableField: React.FC<EditableFieldProps> = ({ label, name, value, isEdi
                     />
                 ) : (
                     <input
-                        type="text"
+                        type={type}
                         name={name}
                         value={value}
                         onChange={onChange}
@@ -61,7 +62,7 @@ const EditableField: React.FC<EditableFieldProps> = ({ label, name, value, isEdi
                     />
                 )
             ) : (
-                <p className={`text-lg text-dark-primary dark:text-light-primary ${!value && 'text-gray-500'}`}>
+                <p className={`text-lg text-dark-primary dark:text-light-primary min-h-[42px] flex items-center ${!value && 'text-gray-500 italic'}`}>
                     {value || placeholder}
                 </p>
             )}
@@ -71,9 +72,13 @@ const EditableField: React.FC<EditableFieldProps> = ({ label, name, value, isEdi
 
 // --- UI State Interface ---
 interface ProfileData {
-  fullName: string;
-  birthDate: string; // Stored as DD.MM.YYYY for UI
+  firstName: string;
+  lastName: string;
+  birthDate: string;
   bio: string;
+  gender: string;
+  city: string;
+  country: string;
 }
 
 // --- Main Profile Page Component ---
@@ -97,9 +102,13 @@ const apiToUi = (apiData: ApiProfile): ProfileData => {
   }
 
   return {
-    fullName: apiData.full_name || '',
+    firstName: apiData.first_name || '',
+    lastName: apiData.last_name || '',
     birthDate: birthDate,
     bio: apiData.bio || '',
+    gender: apiData.gender || '',
+    city: apiData.city || '',
+    country: apiData.country || '',
   };
 };
 
@@ -116,17 +125,31 @@ const uiToApi = (uiData: ProfileData): Partial<ApiProfile> => {
   }
 
   return {
-    full_name: uiData.fullName || undefined,
+    first_name: uiData.firstName || undefined,
+    last_name: uiData.lastName || undefined,
     birth_date: birth_date,
     bio: uiData.bio || undefined,
+    gender: uiData.gender || undefined,
+    city: uiData.city || undefined,
+    country: uiData.country || undefined,
   };
 };
 
 
 const initialProfileState: ProfileData = {
-    fullName: '',
+    firstName: '',
+    lastName: '',
     birthDate: '',
     bio: '',
+    gender: '',
+    city: '',
+    country: '',
+};
+
+const genderMap: { [key: string]: string } = {
+    male: 'Мужской',
+    female: 'Женский',
+    other: 'Другой'
 };
 
 const ProfilePage: React.FC<ProfilePageProps> = ({ user, token }) => {
@@ -158,19 +181,17 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ user, token }) => {
           URL.revokeObjectURL(avatarUrlRef.current);
           avatarUrlRef.current = null;
         }
-
-        if (profile.avatar_url) {
-          const blob = await api.getAvatarBlob(token);
-          if (blob) {
-            const objectUrl = URL.createObjectURL(blob);
-            setAvatarUrl(objectUrl);
-            avatarUrlRef.current = objectUrl;
-          } else {
-            setAvatarUrl(null);
-          }
+        
+        // Always try to fetch the avatar, as getAvatarBlob handles 404s gracefully.
+        const blob = await api.getAvatarBlob(token);
+        if (blob) {
+          const objectUrl = URL.createObjectURL(blob);
+          setAvatarUrl(objectUrl);
+          avatarUrlRef.current = objectUrl;
         } else {
           setAvatarUrl(null);
         }
+
       } catch (err: any) {
         setError(err.message || 'Не удалось загрузить профиль.');
         console.error(err);
@@ -191,7 +212,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ user, token }) => {
     }
   }, [token]);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
       const { name, value } = e.target;
       setProfileData(prev => ({...prev, [name]: value}));
   };
@@ -255,8 +276,6 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ user, token }) => {
       setIsEditing(false);
       setError(null);
   };
-
-  const inputHeaderClass = "w-full bg-transparent text-dark-primary dark:text-light-primary border-b border-gray-300 dark:border-gray-600 focus:border-soviet-red focus:ring-0 p-0 outline-none";
   
   if (isLoading) {
     return (
@@ -302,19 +321,7 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ user, token }) => {
             )}
           </div>
           <div className="w-full">
-            {isEditing ? (
-                 <input
-                    type="text"
-                    name="fullName"
-                    value={profileData.fullName}
-                    onChange={handleInputChange}
-                    placeholder="Ваше полное имя"
-                    className={`text-3xl font-bold ${inputHeaderClass}`}
-                  />
-            ) : (
-                <h1 className="text-3xl font-bold">{savedProfileData.fullName || user.username}</h1>
-            )}
-
+            <h1 className="text-3xl font-bold">{`${savedProfileData.firstName} ${savedProfileData.lastName}`.trim() || user.username}</h1>
             <div className="flex items-center mt-1">
                 <span className="w-3 h-3 bg-green-500 rounded-full mr-2"></span>
                 <p className="text-gray-500 dark:text-gray-400">{user.username}</p>
@@ -344,8 +351,38 @@ const ProfilePage: React.FC<ProfilePageProps> = ({ user, token }) => {
 
       {/* --- Main Content --- */}
       <div className="bg-light-secondary dark:bg-dark-secondary p-4 md:p-6 rounded-lg shadow-lg dark:shadow-none">
-          <EditableField label="Дата рождения" name="birthDate" value={profileData.birthDate} isEditing={isEditing} onChange={handleInputChange} placeholder="ДД.ММ.ГГГГ" />
-          <EditableField label="Биография" name="bio" value={profileData.bio} isEditing={isEditing} onChange={handleInputChange} placeholder="Программист и коммунист" isTextarea />
+          <div className="grid md:grid-cols-2 gap-x-8">
+            <EditableField label="Имя" name="firstName" value={profileData.firstName} isEditing={isEditing} onChange={handleInputChange} placeholder="Не указано" />
+            <EditableField label="Фамилия" name="lastName" value={profileData.lastName} isEditing={isEditing} onChange={handleInputChange} placeholder="Не указана" />
+            <EditableField label="Дата рождения" name="birthDate" value={profileData.birthDate} isEditing={isEditing} onChange={handleInputChange} placeholder="ДД.ММ.ГГГГ" />
+            
+            {/* Custom Gender Field */}
+            <div className="py-4 border-b border-gray-200/50 dark:border-gray-700/50 last:border-b-0">
+                <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Пол</p>
+                {isEditing ? (
+                    <select
+                        name="gender"
+                        value={profileData.gender}
+                        onChange={handleInputChange}
+                        className="w-full bg-light-primary dark:bg-dark-primary text-dark-primary dark:text-light-primary border border-gray-300 dark:border-gray-600 focus:border-soviet-red focus:ring-1 focus:ring-soviet-red/50 p-2 outline-none rounded-md text-lg h-[42px]"
+                    >
+                        <option value="">Не выбрано</option>
+                        <option value="male">Мужской</option>
+                        <option value="female">Женский</option>
+                        <option value="other">Другой</option>
+                    </select>
+                ) : (
+                    <p className={`text-lg text-dark-primary dark:text-light-primary min-h-[42px] flex items-center ${!savedProfileData.gender && 'text-gray-500 italic'}`}>
+                        {genderMap[savedProfileData.gender] || 'Не указан'}
+                    </p>
+                )}
+            </div>
+
+            <EditableField label="Город" name="city" value={profileData.city} isEditing={isEditing} onChange={handleInputChange} placeholder="Не указан" />
+            <EditableField label="Страна" name="country" value={profileData.country} isEditing={isEditing} onChange={handleInputChange} placeholder="Не указана" />
+          </div>
+
+          <EditableField label="Биография" name="bio" value={profileData.bio} isEditing={isEditing} onChange={handleInputChange} placeholder="Расскажите о себе..." isTextarea />
         </div>
     </div>
   );

@@ -51,7 +51,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ user, token, onLogout }) => {
   const renderContent = () => {
     switch (activeTab) {
       case 'messenger':
-        return <ChatPage user={user} token={token} onLogout={onLogout} />;
+        return <ChatPage user={user} token={token} onLogout={onLogout} onNavigate={setActiveTab} />;
       case 'news':
         return <NewsPage />;
       case 'polls':
@@ -63,7 +63,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ user, token, onLogout }) => {
       case 'profile':
         return <ProfilePage user={user} token={token} />;
       default:
-        return <ChatPage user={user} token={token} onLogout={onLogout} />;
+        return <ChatPage user={user} token={token} onLogout={onLogout} onNavigate={setActiveTab} />;
     }
   };
 
