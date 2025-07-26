@@ -339,7 +339,6 @@ async def upload_avatar(
 
     return {"message": "Аватар загружен", "avatar_url": "/profile/avatar"}
 
-
 @app.get("/profile/avatar")
 async def get_avatar(current_user: dict = Depends(get_current_user)):
     user_doc = await db.users.find_one({"username": current_user["username"]})
