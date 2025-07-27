@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { api } from '../services/apiService';
 import type { ApiFile } from '../types';
+import type { ActiveChat } from './ChatPage';
 
 interface AttachmentModalProps {
   onClose: () => void;
-  onSendFile: (payload: { file?: File; fileId?: string; fileName?: string }) => void;
+  onSendFile: (payload: { file?: File; fileId?: string; fileName?: string }) => Promise<void>;
   user: { username: string };
   token: string;
+  activeChat: ActiveChat;
 }
 
 const FileIcon = () => (
@@ -27,11 +29,18 @@ const UploadIcon = () => (
     </svg>
 );
 
+const LoadingSpinner = () => (
+    <div className="absolute inset-0 bg-light-secondary/80 dark:bg-dark-secondary/80 flex items-center justify-center z-10">
+        <div className="w-8 h-8 border-4 border-gray-300 border-t-soviet-red rounded-full animate-spin"></div>
+    </div>
+);
 
-const AttachmentModal: React.FC<AttachmentModalProps> = ({ onClose, onSendFile, user, token }) => {
+
+const AttachmentModal: React.FC<AttachmentModalProps> = ({ onClose, onSendFile, user, token, activeChat }) => {
     const [files, setFiles] = useState<ApiFile[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [isUploading, setIsUploading] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
@@ -51,15 +60,30 @@ const AttachmentModal: React.FC<AttachmentModalProps> = ({ onClose, onSendFile, 
         fetchFiles();
     }, [token, user.username]);
 
-    const handleSendExistingFile = (file: ApiFile) => {
-        onSendFile({ fileId: file.file_id, fileName: file.filename });
+    const handleSendExistingFile = async (file: ApiFile) => {
+        setError(null);
+        try {
+            await onSendFile({ fileId: file.file_id, fileName: file.filename });
+        } catch(err: any) {
+            setError(err.message || 'Не удалось отправить файл');
+        }
     };
 
-    const handleUploadAndSend = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const handleUploadAndSend = async (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
-        if (file) {
-            onSendFile({ file });
+        if (!file) return;
+
+        setError(null);
+        setIsUploading(true);
+        try {
+            await onSendFile({ file });
+            // onSendFile closes the modal on success
+        } catch (err: any) {
+            setError(err.message || 'Не удалось загрузить и отправить файл.');
+        } finally {
+            setIsUploading(false);
         }
+        
         // Reset input to allow re-uploading the same file
         if(event.target) event.target.value = '';
     };
@@ -81,11 +105,16 @@ const AttachmentModal: React.FC<AttachmentModalProps> = ({ onClose, onSendFile, 
                 <h2 className="text-2xl font-bold mb-2 text-center uppercase tracking-wider">Прикрепить файл</h2>
                 <p className="text-center text-sm text-gray-500 dark:text-gray-400 mb-4">Выберите файл из вашего хранилища или загрузите новый.</p>
                 
-                <div className="flex-1 overflow-y-auto border-y border-gray-200 dark:border-gray-700 pr-2">
+                {error && (
+                    <div className="bg-soviet-red/20 border border-soviet-red text-soviet-red px-3 py-2 rounded-md mb-3 text-sm">
+                        <strong>Ошибка:</strong> {error}
+                    </div>
+                )}
+                
+                <div className="flex-1 overflow-y-auto border-y border-gray-200 dark:border-gray-700 pr-2 relative">
+                    {isUploading && <LoadingSpinner />}
                     {isLoading ? (
                         <p className="text-center text-gray-500 p-8">Загрузка файлов...</p>
-                    ) : error ? (
-                        <p className="text-center text-soviet-red p-8">{error}</p>
                     ) : files.length > 0 ? (
                         <ul className="space-y-2 py-4">
                             {files.map(file => (
@@ -112,13 +141,15 @@ const AttachmentModal: React.FC<AttachmentModalProps> = ({ onClose, onSendFile, 
                 <div className="flex-shrink-0 pt-6 flex items-center justify-between">
                      <button
                         onClick={onClose}
-                        className="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 uppercase tracking-wider rounded-md"
+                        disabled={isUploading}
+                        className="bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 uppercase tracking-wider rounded-md disabled:opacity-50"
                     >
                         Отмена
                     </button>
                     <button
                         onClick={triggerFileUpload}
-                        className="bg-soviet-red hover:bg-red-700 text-white font-bold py-2 px-4 uppercase tracking-wider rounded-md flex items-center"
+                        disabled={isUploading}
+                        className="bg-soviet-red hover:bg-red-700 text-white font-bold py-2 px-4 uppercase tracking-wider rounded-md flex items-center disabled:bg-gray-500"
                     >
                         <UploadIcon />
                         Загрузить с устройства

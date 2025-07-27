@@ -18,7 +18,7 @@ interface ChatPageProps {
   onNavigate: (tab: Tab) => void;
 }
 
-interface ActiveChat {
+export interface ActiveChat {
   id: string;
   name: string;
   isGroup: boolean;
@@ -421,7 +421,6 @@ const ChatPage: React.FC<ChatPageProps> = ({ user, token, onLogout, onNavigate }
     if (!payload.file && !payload.fileId) return;
 
     setError(null);
-    setIsAttachmentModalOpen(false);
 
     const fileInfo = payload.file 
         ? { id: `temp-${Date.now()}`, name: payload.file.name }
@@ -449,10 +448,12 @@ const ChatPage: React.FC<ChatPageProps> = ({ user, token, onLogout, onNavigate }
             fileId: payload.fileId
         };
         await api.sendFile(token, apiPayload);
+        setIsAttachmentModalOpen(false); // Close modal on success
     } catch (err: any) {
         setError(err.message || "Не удалось отправить файл.");
         console.error("Ошибка отправки файла:", err);
         setMessages(prev => ({ ...prev, [activeChat.id]: (prev[activeChat.id] || []).filter(msg => msg.id !== optimisticMessage.id) }));
+        throw err; // Re-throw error for the modal to catch
     }
   };
 
@@ -477,7 +478,9 @@ const ChatPage: React.FC<ChatPageProps> = ({ user, token, onLogout, onNavigate }
       alert(`Группа "${name}" создана! Ключ для приглашения: ${invite_key}`);
       await fetchInitialData();
       setIsGroupModalOpen(false);
-    } catch (err: any) { alert(err.message || 'Не удалось создать группу.'); }
+    } catch (err: any) {
+        throw err;
+    }
   };
 
   const handleAddMember = async (inviteKey: string, username: string) => {
@@ -486,7 +489,9 @@ const ChatPage: React.FC<ChatPageProps> = ({ user, token, onLogout, onNavigate }
         await api.addGroupMember(token, inviteKey, username);
         alert(`Пользователь "${username}" добавлен в группу.`);
         setIsGroupModalOpen(false);
-    } catch (err: any) { alert(err.message || 'Не удалось добавить участника.'); }
+    } catch (err: any) { 
+        throw err;
+    }
   };
 
   const handleDeleteChat = async () => {
@@ -562,6 +567,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ user, token, onLogout, onNavigate }
             onSendFile={handleSendFile}
             user={user}
             token={token}
+            activeChat={activeChat}
         />
       )}
       {previewingFile && (

@@ -196,3 +196,6 @@ async def get_group_messages(group_id: str):
             "timestamp": msg["timestamp"],
         })
     return messages
+
+async def count_user_files(user_id: str) -> int:
+    return await db.fs.files.count_documents({"metadata.user_id": user_id})

@@ -151,12 +151,13 @@ const FilesPage: React.FC<FilesPageProps> = ({ user, token }) => {
       fileName += '.txt';
     }
     const newFile = new File([''], fileName, { type: 'text/plain' });
+    setError(null);
     try {
       await api.uploadTextFile(token, user.username, newFile);
       await fetchFiles();
       setIsModalOpen(false);
     } catch (err: any) {
-      alert(err.message || "Не удалось создать файл.");
+      setError(err.message || "Не удалось создать файл.");
     }
   };
   
@@ -167,12 +168,12 @@ const FilesPage: React.FC<FilesPageProps> = ({ user, token }) => {
   const handleFileSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-
+    setError(null);
     try {
       await api.uploadFile(token, user.username, file);
       await fetchFiles();
     } catch (err: any) {
-      alert(err.message || "Не удалось загрузить файл.");
+      setError(err.message || "Не удалось загрузить файл.");
     } finally {
       event.target.value = ''; // Reset input to allow uploading same file again
     }

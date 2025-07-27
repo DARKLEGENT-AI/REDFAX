@@ -1,6 +1,6 @@
 import type { Contact, ApiMessage, ApiFile, ApiProfile, CalendarEvent, ApiGroup, Group } from '../types';
 
-const API_URL = 'http://127.0.0.1:8000';
+const API_URL = 'https://redfax-server.loca.lt';
 
 const handleNetworkError = (error: unknown): never => {
     if (error instanceof TypeError && error.message === 'Failed to fetch') {
@@ -33,7 +33,10 @@ export const api = {
     try {
         const response = await fetch(`${API_URL}/register`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+              'Content-Type': 'application/json',
+              'bypass-tunnel-reminder': 'true' 
+          },
           body: JSON.stringify({
             username,
             password,
@@ -52,7 +55,10 @@ export const api = {
     try {
         const response = await fetch(`${API_URL}/token`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+                'Content-Type': 'application/json',
+                'bypass-tunnel-reminder': 'true'
+            },
             body: JSON.stringify({ username, password }),
         });
 
@@ -68,7 +74,10 @@ export const api = {
     try {
         const response = await fetch(`${API_URL}/friends/list`, {
             method: 'GET',
-            headers: { 'Authorization': `Bearer ${token}` }
+            headers: { 
+                'Authorization': `Bearer ${token}`,
+                'bypass-tunnel-reminder': 'true'
+            }
         });
 
         if (!response.ok) {
@@ -84,7 +93,10 @@ export const api = {
     try {
         const response = await fetch(`${API_URL}/messages`, {
             method: 'GET',
-            headers: { 'Authorization': `Bearer ${token}` }
+            headers: { 
+                'Authorization': `Bearer ${token}`,
+                'bypass-tunnel-reminder': 'true'
+            }
         });
 
         if (!response.ok) {
@@ -102,6 +114,7 @@ export const api = {
             headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`,
+                'bypass-tunnel-reminder': 'true'
             },
             body: JSON.stringify({ username: friendUsername }),
         });
@@ -142,7 +155,11 @@ export const api = {
             };
             options = {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                headers: { 
+                    'Content-Type': 'application/json', 
+                    'Authorization': `Bearer ${token}`,
+                    'bypass-tunnel-reminder': 'true'
+                },
                 body: JSON.stringify(body),
             };
         } else {
@@ -157,7 +174,10 @@ export const api = {
             }
             options = {
                 method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}` },
+                headers: { 
+                    'Authorization': `Bearer ${token}`,
+                    'bypass-tunnel-reminder': 'true'
+                },
                 body: formData,
             };
         }
@@ -172,6 +192,11 @@ export const api = {
         handleNetworkError(error);
     }
   },
+  /**
+   * Sends a file in a message, either by uploading a new one or referencing an existing one.
+   * If uploading a new file, server-side limits on file size (50MB) and total file count (20) apply.
+   * A 400 Bad Request will be returned if these limits are exceeded.
+   */
   sendFile: async (token: string, payload: { receiver?: string; groupId?: string; file?: File; fileId?: string }) => {
     try {
         const isGroupMessage = payload.groupId !== undefined;
@@ -205,7 +230,10 @@ export const api = {
 
         const options = {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` },
+            headers: { 
+                'Authorization': `Bearer ${token}`,
+                'bypass-tunnel-reminder': 'true'
+            },
             body: formData,
         };
         
@@ -223,7 +251,10 @@ export const api = {
     try {
         const response = await fetch(`${API_URL}/group/messages?group_id=${groupId}`, {
             method: 'GET',
-            headers: { 'Authorization': `Bearer ${token}` }
+            headers: { 
+                'Authorization': `Bearer ${token}`,
+                'bypass-tunnel-reminder': 'true'
+            }
         });
 
         if (!response.ok) {
@@ -238,7 +269,10 @@ export const api = {
     try {
         const response = await fetch(`${API_URL}/groups`, {
             method: 'GET',
-            headers: { 'Authorization': `Bearer ${token}` }
+            headers: { 
+                'Authorization': `Bearer ${token}`,
+                'bypass-tunnel-reminder': 'true'
+            }
         });
 
         if (!response.ok) {
@@ -262,6 +296,7 @@ export const api = {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
+          'bypass-tunnel-reminder': 'true'
         },
         body: JSON.stringify({ name }),
       });
@@ -280,6 +315,7 @@ export const api = {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
+          'bypass-tunnel-reminder': 'true'
         },
         body: JSON.stringify({ invite_key, username }),
       });
@@ -295,7 +331,10 @@ export const api = {
      try {
       const response = await fetch(`${API_URL}/group/${groupId}`, {
         method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` },
+        headers: { 
+            'Authorization': `Bearer ${token}`,
+            'bypass-tunnel-reminder': 'true'
+        },
       });
       if (!response.ok) {
         await handleResponseError(response, 'Не удалось удалить группу.');
@@ -304,6 +343,13 @@ export const api = {
       handleNetworkError(error);
     }
   },
+  /**
+   * Uploads a file to the user's storage.
+   * Note: The server enforces file size and count limits.
+   * A 400 Bad Request will be returned with one of the following messages:
+   * - `{"detail": "Файл превышает максимальный размер 50 МБ"}` if the file is larger than 50MB.
+   * - `{"detail": "Превышено максимальное количество файлов: 20"}` if the user already has 20 files.
+   */
   uploadFile: async (token: string, userId: string, file: File): Promise<{ file_id: string }> => {
     try {
       const formData = new FormData();
@@ -313,6 +359,7 @@ export const api = {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
+          'bypass-tunnel-reminder': 'true'
         },
         body: formData,
       });
@@ -324,6 +371,10 @@ export const api = {
       handleNetworkError(error);
     }
   },
+  /**
+   * Uploads a new text file. This also adheres to the server's file limits.
+   * See `uploadFile` for details on specific 400 Bad Request errors.
+   */
   uploadTextFile: async (token: string, userId: string, file: File): Promise<{ file_id: string }> => {
     try {
       const formData = new FormData();
@@ -333,6 +384,7 @@ export const api = {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
+          'bypass-tunnel-reminder': 'true'
         },
         body: formData,
       });
@@ -344,6 +396,11 @@ export const api = {
       handleNetworkError(error);
     }
   },
+  /**
+   * Updates an existing text file by uploading a new version.
+   * Note: The server enforces a file size limit of 50MB for the new content.
+   * A 400 Bad Request will be returned if the new content exceeds this limit.
+   */
   updateTextFile: async (token: string, userId: string, fileId: string, content: string, filename: string): Promise<{ new_file_id: string }> => {
     try {
       const file = new File([content], filename, { type: 'text/plain' });
@@ -354,6 +411,7 @@ export const api = {
         method: 'PUT',
         headers: {
           Authorization: `Bearer ${token}`,
+          'bypass-tunnel-reminder': 'true'
         },
         body: formData,
       });
@@ -369,7 +427,10 @@ export const api = {
     try {
       const response = await fetch(`${API_URL}/files?user_id=${encodeURIComponent(userId)}`, {
         method: 'GET',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { 
+            Authorization: `Bearer ${token}`,
+            'bypass-tunnel-reminder': 'true'
+        },
       });
 
       if (!response.ok) {
@@ -384,7 +445,10 @@ export const api = {
     try {
       const response = await fetch(`${API_URL}/file/${fileId}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { 
+            Authorization: `Bearer ${token}`,
+            'bypass-tunnel-reminder': 'true'
+        },
       });
 
       if (!response.ok) {
@@ -399,7 +463,10 @@ export const api = {
     try {
       const response = await fetch(`${API_URL}/file/${fileId}`, {
         method: 'GET',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { 
+            Authorization: `Bearer ${token}`,
+            'bypass-tunnel-reminder': 'true'
+        },
       });
 
       if (!response.ok) {
@@ -416,7 +483,8 @@ export const api = {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Authorization': `Bearer ${token}`,
+          'bypass-tunnel-reminder': 'true'
         },
         body: JSON.stringify({ file_id: fileId }),
       });
@@ -431,7 +499,10 @@ export const api = {
     try {
       const response = await fetch(`${API_URL}/voice/${fileId}`, {
         method: 'GET',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { 
+            Authorization: `Bearer ${token}`,
+            'bypass-tunnel-reminder': 'true'
+        },
       });
 
       if (!response.ok) {
@@ -446,7 +517,10 @@ export const api = {
     try {
       const response = await fetch(`${API_URL}/profile`, {
         method: 'GET',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { 
+            'Authorization': `Bearer ${token}`,
+            'bypass-tunnel-reminder': 'true'
+        }
       });
 
       if (!response.ok) {
@@ -463,7 +537,8 @@ export const api = {
         method: 'PUT',
         headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${token}`,
+            'bypass-tunnel-reminder': 'true'
         },
         body: JSON.stringify(profileData)
       });
@@ -480,7 +555,10 @@ export const api = {
     try {
       const response = await fetch(`${API_URL}/profile/avatar`, {
         method: 'GET',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { 
+            Authorization: `Bearer ${token}`,
+            'bypass-tunnel-reminder': 'true'
+        },
       });
 
       if (response.status === 404) {
@@ -503,6 +581,7 @@ export const api = {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
+          'bypass-tunnel-reminder': 'true'
         },
         body: formData,
       });
@@ -519,7 +598,10 @@ export const api = {
     try {
       const response = await fetch(`${API_URL}/tasks`, {
         method: 'GET',
-        headers: { 'Authorization': `Bearer ${token}` },
+        headers: { 
+            'Authorization': `Bearer ${token}`,
+            'bypass-tunnel-reminder': 'true'
+        },
       });
       if (!response.ok) {
         await handleResponseError(response, 'Не удалось загрузить задачи.');
@@ -543,6 +625,7 @@ export const api = {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
+          'bypass-tunnel-reminder': 'true'
         },
         body: JSON.stringify({ title, date, description }),
       });
@@ -558,7 +641,10 @@ export const api = {
     try {
       const response = await fetch(`${API_URL}/task/${taskId}`, {
         method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` },
+        headers: { 
+            'Authorization': `Bearer ${token}`,
+            'bypass-tunnel-reminder': 'true'
+        },
       });
       if (!response.ok) {
         await handleResponseError(response, 'Не удалось удалить задачу.');

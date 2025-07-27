@@ -96,9 +96,9 @@ const ContactList: React.FC<ContactListProps> = ({ contacts, groups, activeChat,
                             <div 
                                 className="group/copy flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-soviet-red"
                                 onClick={(e) => handleCopyKey(e, group.inviteKey, group.id)}
-                                title="Скопировать ключ приглашения"
+                                title="Нажмите, чтобы показать и скопировать ключ"
                             >
-                                <code className="bg-gray-200 dark:bg-gray-800 px-1.5 py-0.5 rounded group-hover/copy:text-soviet-red">{group.inviteKey}</code>
+                                <code className={`bg-gray-200 dark:bg-gray-800 px-1.5 py-0.5 rounded group-hover/copy:text-soviet-red transition-all duration-300 ${copiedKeyId === group.id ? '' : 'blur-sm select-none'}`}>{group.inviteKey}</code>
                                 <div className="w-4 h-4 flex items-center justify-center">
                                     {copiedKeyId === group.id ? (
                                         <span className="text-green-500 font-bold">✓</span>

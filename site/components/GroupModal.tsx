@@ -14,14 +14,18 @@ const GroupModal: React.FC<GroupModalProps> = ({ onClose, onAddMember, onCreateG
   const [username, setUsername] = useState('');
 
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!groupName.trim()) return;
     
     setIsLoading(true);
+    setError(null);
     try {
       await onCreateGroup(groupName);
+    } catch (err: any) {
+        setError(err.message || 'Не удалось создать группу.');
     } finally {
       setIsLoading(false);
     }
@@ -32,8 +36,15 @@ const GroupModal: React.FC<GroupModalProps> = ({ onClose, onAddMember, onCreateG
     if (!inviteKey.trim() || !username.trim()) return;
     
     setIsLoading(true);
+    setError(null);
     try {
       await onAddMember(inviteKey, username);
+    } catch (err: any) {
+        if (err.message === 'User already in group') {
+            setError('Пользователь уже состоит в группе.');
+        } else {
+            setError(err.message || 'Не удалось добавить участника.');
+        }
     } finally {
       setIsLoading(false);
     }
@@ -44,13 +55,13 @@ const GroupModal: React.FC<GroupModalProps> = ({ onClose, onAddMember, onCreateG
       <div className="bg-light-secondary dark:bg-dark-secondary p-8 rounded-lg shadow-lg w-full max-w-md border-2 border-soviet-red text-dark-primary dark:text-light-primary">
         <div className="flex border-b border-gray-200 dark:border-gray-600 mb-6">
             <button
-              onClick={() => setView('add')}
+              onClick={() => { setView('add'); setError(null); }}
               className={`flex-1 py-2 text-lg uppercase tracking-widest transition-colors ${view === 'add' ? 'text-soviet-red border-b-2 border-soviet-red' : 'text-gray-500 dark:text-gray-400 hover:text-dark-primary dark:hover:text-light-primary'}`}
             >
               Добавить участника
             </button>
             <button
-              onClick={() => setView('create')}
+              onClick={() => { setView('create'); setError(null); }}
               className={`flex-1 py-2 text-lg uppercase tracking-widest transition-colors ${view === 'create' ? 'text-soviet-red border-b-2 border-soviet-red' : 'text-gray-500 dark:text-gray-400 hover:text-dark-primary dark:hover:text-light-primary'}`}
             >
               Создать группу
@@ -75,6 +86,7 @@ const GroupModal: React.FC<GroupModalProps> = ({ onClose, onAddMember, onCreateG
                     required
                     />
                 </div>
+                {error && <p className="text-soviet-red text-xs italic mb-4 text-center">{error}</p>}
                 <button
                     type="submit"
                     disabled={isLoading}
@@ -117,6 +129,7 @@ const GroupModal: React.FC<GroupModalProps> = ({ onClose, onAddMember, onCreateG
                     required
                     />
                 </div>
+                {error && <p className="text-soviet-red text-xs italic mb-4 text-center">{error}</p>}
                 <button
                     type="submit"
                     disabled={isLoading}

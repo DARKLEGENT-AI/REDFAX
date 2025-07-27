@@ -16,10 +16,14 @@ router = APIRouter()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_headers=["*","bypass-tunnel-reminder"],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
 )
+
+### НАСТРОЙКИ ###
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 мегабайт
+MAX_FILE_COUNT = 20
 
 ### АУНТИФИКАЦИЯ ###
 
@@ -281,6 +285,16 @@ async def list_friends(current_user: dict = Depends(get_current_user)):
 async def upload_file(user_id: str, file: UploadFile = File(...)):
     contents = await file.read()
 
+    # ⛔ Проверка размера файла
+    if len(contents) > MAX_FILE_SIZE:
+        raise HTTPException(400, detail="Файл превышает максимальный размер 50 МБ")
+
+    # ⛔ Проверка количества файлов
+    file_count = await count_user_files(user_id)
+    if file_count >= MAX_FILE_COUNT:
+        raise HTTPException(400, detail="Превышено максимальное количество файлов: 20")
+
+    # ✅ Загрузка
     file_id = await fs_bucket.upload_from_stream(
         file.filename,
         contents,
@@ -535,14 +549,30 @@ async def get_group_messages(
     messages = []
     async for msg in cursor:
         audio_url = None
+        file_url = None
+        filename = None
+        file_id = msg.get("file_id")
+
         if msg.get("audio_file_id"):
             audio_url = f"/voice/{msg['audio_file_id']}"
+
+        if file_id:
+            file_url = f"/file/{file_id}"
+            try:
+                file_doc = await db.fs.files.find_one({"_id": ObjectId(file_id)})
+                if file_doc:
+                    filename = file_doc["filename"]
+            except:
+                pass
 
         messages.append(MessageOut(
             sender=msg["sender"],
             receiver=group_id,  # в этом случае "receiver" — это id группы
             content=decrypt_message(msg["content"]) if msg.get("content") else None,
             audio_url=audio_url,
+            file_id=str(file_id) if file_id else None,
+            file_url=file_url,
+            filename=filename,
             timestamp=msg["timestamp"]
         ))
 
