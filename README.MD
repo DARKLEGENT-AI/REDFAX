@@ -85,26 +85,25 @@
 ## ⚙ Установка и запуск
 
 # 1. Клонировать репозиторий
-git clone https://github.com/DARKLEGENT_AI/REDFAX.git
-cd REDFAX
+   - git clone https://github.com/DARKLEGENT_AI/REDFAX.git
+   - cd REDFAX
 
 # 2. Установить зависимости
-pip install -r requirements.txt
+   - pip install -r requirements.txt
 
 # 3. Запустить MongoDB в Docker
-docker compose -f docker-compose.yml up -d --build mongodb
+   - docker compose -f docker-compose.yml up -d --build mongodb
 
 # 4. Запустить API-сервер
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-Примечание:
-Если у вас нет внешнего IP, можно воспользоваться обратным пробросом портов.
-Для этого запустите скрипт lt-loop-15min.bat.
+   - uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+   - Примечание: Если у вас нет внешнего IP, можно воспользоваться обратным пробросом портов.
+   - Для этого запустите скрипт lt-loop-15min.bat.
 
-REDFAX_SERVER/
-├── main.py              # Точка входа (FastAPI, маршруты)
-├── models.py            # MongoDB модели и подключение
-├── schemas.py           # Pydantic схемы
-├── auth.py              # JWT, bcrypt, OAuth2
-├── crypto.py            # AES‑шифрование/дешифровка
-├── docker-compose.yml   # MongoDB сервис
-└── site/                # Фронтенд (React/Vue/Angular + Vite)
+   - REDFAX_SERVER/
+   - ├── main.py              # Точка входа (FastAPI, маршруты)
+   - ├── models.py            # MongoDB модели и подключение
+   - ├── schemas.py           # Pydantic схемы
+   - ├── auth.py              # JWT, bcrypt, OAuth2
+   - ├── crypto.py            # AES‑шифрование/дешифровка
+   - ├── docker-compose.yml   # MongoDB сервис
+   - └── site/                # Фронтенд (React/Vue/Angular + Vite)
