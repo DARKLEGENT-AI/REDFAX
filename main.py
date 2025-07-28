@@ -10,6 +10,17 @@ from bson import ObjectId
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, APIRouter, WebSocket, WebSocketDisconnect, Body, Query, Form
 import json
 
+# Утилиты для пуша
+async def push_personal_message(to_user: str, payload: dict):
+    ws = active_connections_ws.get(to_user)
+    if ws:
+        await ws.send_text(json.dumps(payload))
+
+async def push_group_message(group_members: List[str], from_user: str, payload: dict):
+    for member in group_members:
+        if member != from_user and member in active_connections_ws:
+            await active_connections_ws[member].send_text(json.dumps(payload))
+
 app = FastAPI()
 router = APIRouter()
 
@@ -55,43 +66,36 @@ async def send_message(
     current_user: dict = Depends(get_current_user)
 ):
     receiver = payload.receiver
-    group_id = payload.group_id
     content = payload.content
 
-    if not receiver and not group_id:
-        raise HTTPException(400, detail="Нужно указать receiver или group_id")
-    if receiver and group_id:
-        raise HTTPException(400, detail="Одновременно нельзя указывать receiver и group_id")
-    if not content:
-        raise HTTPException(400, detail="Должен быть текст сообщения")
-
+    # … ваши валидации …
     encrypted_content = encrypt_message(content)
 
-    if receiver:
-        rec_user = await get_user(receiver)
-        if not rec_user:
-            raise HTTPException(404, detail="Получатель не найден")
-        await create_message(
-            sender=current_user["username"],
-            receiver=receiver,
-            content=encrypted_content,
-            audio_file_id=None
-        )
-        return JSONResponse({"message": "Сообщение отправлено в личку"})
+    # 1) сохраняем в БД
+    await create_message(
+        sender=current_user["username"],
+        receiver=receiver,
+        content=encrypted_content,
+        audio_file_id=None
+    )
 
-    group = await get_group_by_id(group_id)
-    if not group:
-        raise HTTPException(404, detail="Группа не найдена")
-    if current_user["username"] not in group["members"]:
-        raise HTTPException(403, detail="Вы не состоите в группе")
-    await db.group_messages.insert_one({
-        "group_id": group_id,
+    # 2) формируем объект, который придёт клиенту
+    message_data = {
         "sender": current_user["username"],
-        "content": encrypted_content,
-        "audio_file_id": None,
-        "timestamp": datetime.utcnow()
-    })
-    return JSONResponse({"message": "Сообщение отправлено в группу"})
+        "receiver": receiver,
+        "content": content,
+        "timestamp": datetime.utcnow().isoformat()
+    }
+    payload_ws = {
+        "type": "new_message",
+        "data": message_data
+    }
+
+    # 3) пушим через WS, если получатель онлайн
+    await push_personal_message(receiver, payload_ws)
+
+    return JSONResponse({"message": "Сообщение отправлено"}, status_code=201)
+
 
 @app.post("/send/voice")
 async def send_voice_message(
@@ -100,51 +104,49 @@ async def send_voice_message(
     audio_file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user)
 ):
-    if not receiver and not group_id:
-        raise HTTPException(400, detail="Нужно указать receiver или group_id")
-    if receiver and group_id:
-        raise HTTPException(400, detail="Одновременно нельзя указывать receiver и group_id")
-
-    if not audio_file.content_type.startswith("audio/"):
-        raise HTTPException(400, detail="Файл должен быть аудиофайлом")
-
+    # … ваши валидации и загрузка в GridFS …
     contents = await audio_file.read()
     file_id = await voice_fs_bucket.upload_from_stream(
-        audio_file.filename,
-        contents,
-        metadata={
-            "user_id": current_user["username"],
-            "content_type": audio_file.content_type,
-            "type": "voice"
-        }
+        audio_file.filename, contents,
+        metadata={"user_id": current_user["username"], "type": "voice"}
     )
     audio_file_id = str(file_id)
 
     if receiver:
-        rec_user = await get_user(receiver)
-        if not rec_user:
-            raise HTTPException(404, detail="Получатель не найден")
+        # личка
         await create_message(
             sender=current_user["username"],
             receiver=receiver,
             content=None,
             audio_file_id=audio_file_id
         )
-        return JSONResponse({"message": "Голосовое сообщение отправлено в личку"})
+        message_data = {
+            "sender": current_user["username"],
+            "receiver": receiver,
+            "audio_url": f"/voice/{audio_file_id}",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        payload_ws = {"type": "new_voice_message", "data": message_data}
+        await push_personal_message(receiver, payload_ws)
+        return JSONResponse({"message": "Голосовое сообщение отправлено"}, status_code=201)
 
+    # группа
     group = await get_group_by_id(group_id)
-    if not group:
-        raise HTTPException(404, detail="Группа не найдена")
-    if current_user["username"] not in group["members"]:
-        raise HTTPException(403, detail="Вы не состоите в группе")
     await db.group_messages.insert_one({
         "group_id": group_id,
         "sender": current_user["username"],
-        "content": None,
         "audio_file_id": audio_file_id,
         "timestamp": datetime.utcnow()
     })
-    return JSONResponse({"message": "Голосовое сообщение отправлено в группу"})
+    message_data = {
+        "sender": current_user["username"],
+        "group_id": group_id,
+        "audio_url": f"/voice/{audio_file_id}",
+        "timestamp": datetime.utcnow().isoformat()
+    }
+    payload_ws = {"type": "new_group_voice_message", "data": message_data}
+    await push_group_message(group["members"], current_user["username"], payload_ws)
+    return JSONResponse({"message": "Голосовое сообщение отправлено в группу"}, status_code=201)
 
 @app.get("/messages", response_model=List[MessageOut])
 async def get_messages(current_user: dict = Depends(get_current_user)):

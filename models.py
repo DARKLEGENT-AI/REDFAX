@@ -199,3 +199,13 @@ async def get_group_messages(group_id: str):
 
 async def count_user_files(user_id: str) -> int:
     return await db.fs.files.count_documents({"metadata.user_id": user_id})
+
+async def push_personal_message(to_user: str, payload: dict):
+    ws = active_connections_ws.get(to_user)
+    if ws:
+        await ws.send_text(json.dumps(payload))
+
+async def push_group_message(group_members: List[str], from_user: str, payload: dict):
+    for member in group_members:
+        if member != from_user and member in active_connections_ws:
+            await active_connections_ws[member].send_text(json.dumps(payload))
