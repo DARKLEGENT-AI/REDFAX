@@ -6,6 +6,8 @@
 ![Скриншот интерфейса RED FAX](assets/image.png)
 
 ---
+## https://redfax.netlify.app/
+---
 
 ## 🔍 Описание
 
@@ -42,8 +44,7 @@
 | **Realtime**    | WebSocket (FastAPI), JSON‑сообщения                |
 | **Файловое хранилище** | MongoDB GridFS, StreamingResponse           |
 | **Авторизация** | JWT, bcrypt, OAuth2PasswordBearer                  |
-| **Frontend**    | React/Vue/Angular + WebSocket + Fetch API +        |
-| Tailwind CSS + TypeScript + Vite |                                   |
+| **Frontend**    | React/Vue/Angular + WebSocket + Fetch API + Tailwind CSS + TypeScript + Vite |
 | **Контроль версий** | Git, GitHub                                    |
 
 ---
