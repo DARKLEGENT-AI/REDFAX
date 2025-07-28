@@ -40,7 +40,7 @@ async def register(user: UserCreate):
 async def login(user: UserLogin):
     user_obj = await authenticate_user(user.username, user.password)
     if not user_obj:
-        raise HTTPException(status_code=400, detail="Incorrect credentials")
+        raise HTTPException(status_code=400, detail="Не верный логин или пароль")
     token = create_access_token(
         data={"sub": user.username},
         expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
